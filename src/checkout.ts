@@ -96,61 +96,59 @@ export function assertMutable(session: Pick<CheckoutSession, "status">) {
 }
 
 /**
- * Canonical ticket purchase flow for agents and sellers.
- * Each step maps to a Logistix HTTP method and a Stripe ACS/ACP concept.
+ * Canonical ticket purchase flow.
+ * HTTP paths are relative to the seller mount from `/.well-known/linguistix.json`.
+ * Shared Payment Token issuance is a Stripe API call made by the paying agent.
  */
 export const TICKET_PURCHASE_FLOW = [
   {
     step: 1,
-    name: "discover",
-    description: "Search published events and inspect ticket types / inventory.",
-    seller: "GET /events, GET /events/{id}, GET /events/{id}/ticket-types",
-    agent_tools: ["logistix_search_events", "logistix_get_event", "logistix_list_ticket_types"],
+    name: "discover_seller",
+    description:
+      "Find the seller from llms.txt or the event page and read /.well-known/linguistix.json for the API mount, OpenAPI, auth, and Stripe seller profile.",
+    http: "GET /.well-known/linguistix.json",
   },
   {
     step: 2,
-    name: "select",
-    description: "Buyer chooses ticket type SKUs and quantities (and promo codes if required).",
-    seller: "Agent holds selection locally until checkout create",
-    agent_tools: ["logistix_list_ticket_types"],
+    name: "discover_events",
+    description: "Search published events and read one event.",
+    http: "GET /events, GET /events/{id}",
   },
   {
     step: 3,
-    name: "create_checkout",
-    description: "Open a stateful checkout session. Seller holds inventory and returns totals.",
-    seller: "POST /checkout_sessions (ACP create)",
-    agent_tools: ["logistix_create_checkout"],
+    name: "select",
+    description: "List ticket types, prices in cents, and remaining inventory.",
+    http: "GET /events/{id}/ticket-types",
   },
   {
     step: 4,
-    name: "update_checkout",
-    description: "Attach buyer identity; adjust quantities. Session becomes ready_for_payment.",
-    seller: "POST /checkout_sessions/{id} (ACP update)",
-    agent_tools: ["logistix_update_checkout"],
+    name: "create_checkout",
+    description: "Open a checkout session. The seller holds inventory and returns totals.",
+    http: "POST /checkout_sessions",
   },
   {
     step: 5,
-    name: "collect_payment",
-    description:
-      "Agent collects a PaymentMethod with Stripe Elements, then issues a Shared Payment Token scoped to the seller Stripe profile (amount, currency, expiry).",
-    seller: "Seller Stripe profile advertised on the manifest",
-    agent_tools: ["logistix_complete_purchase"],
-    stripe: "POST /v1/shared_payment/issued_tokens",
+    name: "update_checkout",
+    description: "Attach the buyer and adjust quantities until status is ready_for_payment.",
+    http: "POST /checkout_sessions/{id}",
   },
   {
     step: 6,
-    name: "complete",
+    name: "issue_shared_payment_token",
     description:
-      "Agent sends the SPT. Seller confirms a PaymentIntent with the granted token, creates the order, and issues tickets.",
-    seller: "POST /checkout_sessions/{id}/complete (ACP complete)",
-    agent_tools: ["logistix_complete_purchase"],
-    stripe: "PaymentIntent with payment_method_data.shared_payment_granted_token",
+      "The paying agent issues a Stripe Shared Payment Token scoped to payment.stripe_network_profile from the discovery document. Linguistix does not issue tokens.",
+    http: "Stripe POST /v1/shared_payment/issued_tokens",
   },
   {
     step: 7,
+    name: "complete",
+    description: "Send the SPT. The seller confirms a PaymentIntent and issues digital tickets.",
+    http: "POST /checkout_sessions/{id}/complete",
+  },
+  {
+    step: 8,
     name: "confirm",
-    description: "Return order permalink and ticket confirmation for the chat to relay to the buyer.",
-    seller: "GET /checkout_sessions/{id}",
-    agent_tools: ["logistix_get_checkout"],
+    description: "Read the completed session and give the buyer order.permalink_url.",
+    http: "GET /checkout_sessions/{id}",
   },
 ] as const;

@@ -1,9 +1,9 @@
 /**
- * Logistix protocol types.
+ * Linguistix seller protocol types. The wire protocol id is `logistix`.
  *
- * Discovery + ticket-type selection are ticketing-specific.
- * Checkout + payment follow Stripe Agentic Commerce / ACP:
- * create → update → collect PaymentMethod → issue Shared Payment Token → complete.
+ * Agents discover a seller at `/.well-known/linguistix.json` and call the HTTP API.
+ * Checkout follows Stripe Agentic Commerce: create → update → Shared Payment Token → complete.
+ * Token issuance is a Stripe call made by the paying agent; this package confirms payment on the seller.
  */
 
 export type MoneyCents = number;
@@ -163,7 +163,7 @@ export type PaymentData = {
   };
   /**
    * Dev/test fallback: a Stripe PaymentMethod id when SPT APIs are unavailable.
-   * Production agents MUST send an SPT in `token`.
+   * Live checkout sends an SPT in `token`.
    */
   payment_method?: string;
 };
@@ -210,6 +210,8 @@ export type CompleteCheckoutInput = {
 
 export type SellerManifest = {
   protocol: "logistix";
+  /** Product name. Sellers should set this to Linguistix. */
+  product?: "Linguistix";
   version: string;
   acp_version: string;
   seller: {
@@ -219,24 +221,19 @@ export type SellerManifest = {
     stripe_account?: string;
   };
   capabilities: {
-    search: true;
-    ticket_types: true;
-    checkout: true;
-    agentic_payment: true;
+    search: boolean;
+    ticket_types: boolean;
+    checkout: boolean;
+    agentic_payment: boolean;
     fulfillment: FulfillmentType[];
   };
+  /**
+   * Paths relative to the API mount (`events`, `checkout_sessions`).
+   * The absolute mount URL lives in the discovery document, not here.
+   */
   endpoints: {
     events: string;
     checkout_sessions: string;
   };
   payment: CheckoutCapabilities["payment"];
-};
-
-export type LogistixClientOptions = {
-  /** Seller Logistix base URL, e.g. https://tickets.example.com/api/logistix */
-  baseUrl: string;
-  apiKey?: string;
-  fetch?: typeof fetch;
-  /** Defaults to Logistix protocol version. */
-  version?: string;
 };

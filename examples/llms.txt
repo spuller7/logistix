@@ -1,0 +1,8 @@
+# Open Gate
+
+> Primary-market tickets sold through Linguistix. Any chat agent can check out over HTTP after reading the discovery document. There is no package to install.
+
+## Buy tickets
+
+- [Linguistix discovery](https://tickets.example.com/.well-known/linguistix.json): API mount, protocol version, auth, Stripe seller profile for Shared Payment Tokens, and the OpenAPI URL.
+- [Events](https://tickets.example.com/events): Human event pages. Each page links to the same discovery document and includes the Linguistix event id.

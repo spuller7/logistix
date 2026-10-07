@@ -1,0 +1,42 @@
+{
+  "product": "Linguistix",
+  "protocol": "logistix",
+  "protocol_version": "2026-08-25",
+  "acp_version": "2026-01-30",
+  "seller": {
+    "id": "open-gate",
+    "name": "Open Gate",
+    "stripe_network_profile": "bp_example_open_gate",
+    "stripe_account": "acct_example_open_gate"
+  },
+  "api": {
+    "mount": "https://tickets.example.com/api/logistix",
+    "openapi": "https://tickets.example.com/.well-known/linguistix-openapi.yaml"
+  },
+  "auth": {
+    "type": "bearer",
+    "header": "Authorization",
+    "scheme": "Bearer",
+    "version_header": "Logistix-Version",
+    "mode": "published",
+    "token": "example-agent-token",
+    "instructions": "Send this bearer token on every request to api.mount. Replace example-agent-token with the seller's published agent credential. It is a public checkout credential, not an admin secret."
+  },
+  "payment": {
+    "provider": "stripe",
+    "method": "shared_payment_token",
+    "handler_id": "card_tokenized",
+    "handler_name": "dev.acp.tokenized.card",
+    "requires_delegate_payment": true,
+    "accepted_brands": ["visa", "mastercard", "amex", "discover"],
+    "stripe_network_profile": "bp_example_open_gate",
+    "stripe_account": "acct_example_open_gate"
+  },
+  "capabilities": {
+    "search": true,
+    "ticket_types": true,
+    "checkout": true,
+    "agentic_payment": true,
+    "fulfillment": ["digital"]
+  }
+}
