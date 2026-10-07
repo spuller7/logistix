@@ -41,72 +41,48 @@ export const updateCheckoutInputSchema = z.object({
   fulfillment_option_id: z.string().optional(),
 });
 
-export const paymentDataSchema = z.object({
-  token: z.string().min(1),
-  provider: z.literal("stripe"),
-  handler_id: z.literal("card_tokenized"),
-  billing_address: z
-    .object({
-      line1: z.string().optional(),
-      city: z.string().optional(),
-      state: z.string().optional(),
-      postal_code: z.string().optional(),
-      country: z.string().optional(),
-    })
-    .optional(),
-  payment_method: z.string().optional(),
-});
+/** Card number or CVC typed into a field that must carry a token or PaymentMethod id. */
+export function containsRawCardData(value: string): boolean {
+  const compact = value.replace(/[\s-]/g, "");
+  return /^\d{3,4}$/.test(compact) || /^\d{13,19}$/.test(compact);
+}
+
+export const paymentDataSchema = z
+  .object({
+    token: z.string().min(1),
+    provider: z.literal("stripe"),
+    handler_id: z.literal("card_tokenized"),
+    billing_address: z
+      .object({
+        line1: z.string().optional(),
+        city: z.string().optional(),
+        state: z.string().optional(),
+        postal_code: z.string().optional(),
+        country: z.string().optional(),
+      })
+      .optional(),
+    payment_method: z.string().optional(),
+  })
+  .superRefine((data, ctx) => {
+    if (containsRawCardData(data.token)) {
+      ctx.addIssue({
+        code: "custom",
+        path: ["token"],
+        message:
+          "payment_data.token must be a Shared Payment Token (spt_…), not a card number or CVC",
+      });
+    }
+    if (data.payment_method && containsRawCardData(data.payment_method)) {
+      ctx.addIssue({
+        code: "custom",
+        path: ["payment_method"],
+        message:
+          "payment_data.payment_method must be a Stripe PaymentMethod id, not a card number or CVC",
+      });
+    }
+  });
 
 export const completeCheckoutInputSchema = z.object({
   payment_data: paymentDataSchema,
   buyer: partialBuyerSchema.optional(),
-});
-
-export const searchEventsToolSchema = z.object({
-  query: z.string().describe("Artist, team, event name, or venue"),
-  city: z.string().optional().describe("City or region filter"),
-  starts_after: z.string().optional().describe("ISO 8601 lower bound for event start"),
-  starts_before: z.string().optional().describe("ISO 8601 upper bound for event start"),
-});
-
-export const getEventToolSchema = z.object({
-  event_id: z.string().describe("Logistix event id from search"),
-});
-
-export const listTicketTypesToolSchema = z.object({
-  event_id: z.string().describe("Logistix event id"),
-});
-
-export const createCheckoutToolSchema = z.object({
-  event_id: z.string(),
-  items: z.array(ticketLineItemSchema).min(1),
-  buyer_email: z.string().email().optional(),
-  buyer_name: z.string().optional(),
-  buyer_phone: z.string().optional(),
-});
-
-export const updateCheckoutToolSchema = z.object({
-  checkout_id: z.string(),
-  items: z.array(ticketLineItemSchema).min(1).optional(),
-  buyer_email: z.string().email().optional(),
-  buyer_name: z.string().optional(),
-  buyer_phone: z.string().optional(),
-});
-
-export const getCheckoutToolSchema = z.object({
-  checkout_id: z.string(),
-});
-
-export const completePurchaseToolSchema = z.object({
-  checkout_id: z.string(),
-  buyer_email: z.string().email().describe("Purchaser email for ticket delivery"),
-  buyer_name: z.string().optional(),
-  payment_method_id: z
-    .string()
-    .optional()
-    .describe("Stripe PaymentMethod id collected in the agent UI. Omit to receive a hosted payment URL."),
-});
-
-export const cancelCheckoutToolSchema = z.object({
-  checkout_id: z.string(),
 });

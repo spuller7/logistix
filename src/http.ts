@@ -1,8 +1,13 @@
+/**
+ * Seller HTTP API mounted under the path advertised in `/.well-known/linguistix.json`.
+ * The well-known discovery document is served at the site root, outside this handler.
+ */
 import { LOGISTIX_VERSION } from "./version.js";
 import { LogistixError, isLogistixError } from "./errors.js";
 import {
   completeCheckoutInputSchema,
   createCheckoutInputSchema,
+  eventSearchQuerySchema,
   updateCheckoutInputSchema,
 } from "./schemas.js";
 import type {
@@ -87,15 +92,18 @@ export async function handleLogistixRequest(
     authorize(req, options);
 
     if (parts[0] === "events" && parts.length === 1 && method === "GET") {
-      const events = await adapter.searchEvents({
+      const limitRaw = queryValue(req.query, "limit");
+      const parsedQuery = eventSearchQuerySchema.safeParse({
         q: queryValue(req.query, "q"),
         city: queryValue(req.query, "city"),
         starts_after: queryValue(req.query, "starts_after"),
         starts_before: queryValue(req.query, "starts_before"),
-        limit: queryValue(req.query, "limit")
-          ? Number(queryValue(req.query, "limit"))
-          : undefined,
+        limit: limitRaw ? Number(limitRaw) : undefined,
       });
+      if (!parsedQuery.success) {
+        throw new LogistixError("VALIDATION_ERROR", parsedQuery.error.message, 400);
+      }
+      const events = await adapter.searchEvents(parsedQuery.data);
       return { status: 200, body: { events }, headers: jsonHeaders() };
     }
 

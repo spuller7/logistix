@@ -1,0 +1,303 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "linguistix.discovery.schema.json",
+  "title": "LinguistixDiscoveryDocument",
+  "description": "Document served at /.well-known/linguistix.json. Product name Linguistix; protocol id logistix. Agents ignore unknown properties. A byte-identical copy may also be served at /.well-known/logistix.json.",
+  "type": "object",
+  "additionalProperties": true,
+  "required": [
+    "product",
+    "protocol",
+    "protocol_version",
+    "acp_version",
+    "seller",
+    "api",
+    "auth",
+    "payment",
+    "capabilities"
+  ],
+  "properties": {
+    "product": {
+      "const": "Linguistix",
+      "description": "Product name. The wire protocol id remains logistix."
+    },
+    "protocol": {
+      "const": "logistix"
+    },
+    "protocol_version": {
+      "type": "string",
+      "pattern": "^\\d{4}-\\d{2}-\\d{2}$",
+      "description": "Value the seller sends in the Logistix-Version response header.",
+      "examples": ["2026-08-25"]
+    },
+    "acp_version": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Agentic Commerce Protocol checkout version these sessions align with.",
+      "examples": ["2026-01-30"]
+    },
+    "seller": {
+      "type": "object",
+      "additionalProperties": true,
+      "required": ["id", "name"],
+      "properties": {
+        "id": { "type": "string", "minLength": 1 },
+        "name": { "type": "string", "minLength": 1 },
+        "stripe_network_profile": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Stripe network business profile. Required when capabilities.agentic_payment is true. Must match payment.stripe_network_profile."
+        },
+        "stripe_account": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Stripe account id (acct_…) when the seller publishes one."
+        }
+      }
+    },
+    "api": {
+      "type": "object",
+      "additionalProperties": true,
+      "required": ["mount", "openapi"],
+      "properties": {
+        "mount": {
+          "type": "string",
+          "pattern": "^https?://[^\\s]+$",
+          "description": "Absolute http(s) URL of the seller HTTP API, with no trailing slash. Paths in the OpenAPI document are relative to this URL. Conventional path: /api/logistix."
+        },
+        "openapi": {
+          "type": "string",
+          "pattern": "^https?://[^\\s]+$",
+          "description": "Absolute http(s) URL of the OpenAPI document for api.mount. Recommended path: /.well-known/linguistix-openapi.yaml."
+        }
+      }
+    },
+    "auth": {
+      "type": "object",
+      "additionalProperties": true,
+      "required": ["type", "mode", "version_header"],
+      "properties": {
+        "type": {
+          "enum": ["bearer", "none"]
+        },
+        "mode": {
+          "enum": ["published", "out_of_band", "none"],
+          "description": "published: auth.token is a public agent credential. out_of_band: follow auth.instructions. none: the mount accepts unauthenticated calls."
+        },
+        "version_header": {
+          "const": "Logistix-Version"
+        },
+        "header": {
+          "const": "Authorization"
+        },
+        "scheme": {
+          "const": "Bearer"
+        },
+        "token": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Public agent credential. Present only when mode is published. This is not an admin secret."
+        },
+        "instructions": {
+          "type": "string",
+          "minLength": 1,
+          "description": "How to send the published token, or how to obtain one when mode is out_of_band."
+        }
+      }
+    },
+    "payment": {
+      "type": "object",
+      "additionalProperties": true,
+      "required": [
+        "provider",
+        "method",
+        "handler_id",
+        "handler_name",
+        "requires_delegate_payment",
+        "accepted_brands",
+        "collection"
+      ],
+      "properties": {
+        "provider": { "const": "stripe" },
+        "method": {
+          "const": "shared_payment_token",
+          "description": "The paying agent collects a payment method in an embedded third-party widget, issues a Stripe Shared Payment Token, and sends it as payment_data.token on checkout complete. See payment.collection."
+        },
+        "handler_id": { "const": "card_tokenized" },
+        "handler_name": { "const": "dev.acp.tokenized.card" },
+        "requires_delegate_payment": { "const": true },
+        "accepted_brands": {
+          "type": "array",
+          "minItems": 1,
+          "items": { "type": "string", "minLength": 1 }
+        },
+        "stripe_network_profile": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Profile passed to Stripe as seller_details[network_business_profile] when the agent issues the Shared Payment Token."
+        },
+        "stripe_account": { "type": "string", "minLength": 1 },
+        "collection": {
+          "type": "object",
+          "additionalProperties": true,
+          "description": "How the paying agent collects a payment method. These values are fixed for every Linguistix seller.",
+          "required": [
+            "cardholder_data_in_chat",
+            "primary_ui",
+            "widgets",
+            "redirect_to_checkout_page",
+            "requires_action",
+            "hosted_payment_url",
+            "seller_receives",
+            "instructions"
+          ],
+          "properties": {
+            "cardholder_data_in_chat": {
+              "const": "forbidden",
+              "description": "The buyer must never type a card number, PAN, or CVC into the model or as free text in chat."
+            },
+            "primary_ui": {
+              "const": "embedded_third_party",
+              "description": "Collect the payment method with a third-party payment UI embedded in the chat interface."
+            },
+            "widgets": {
+              "type": "array",
+              "minItems": 1,
+              "items": {
+                "enum": ["stripe_payment_element", "stripe_elements", "wallet"]
+              },
+              "description": "Acceptable embedded widgets, such as the Stripe Payment Element, Elements, or a wallet."
+            },
+            "redirect_to_checkout_page": {
+              "const": "not_primary",
+              "description": "Sending the buyer to a separate checkout page is not the primary path."
+            },
+            "requires_action": {
+              "const": "same_embedded_widget",
+              "description": "3DS and other requires_action steps stay inside the same embedded payment widget when possible."
+            },
+            "hosted_payment_url": {
+              "const": "last_resort",
+              "description": "An external payment_url or hosted payment page is a last resort when the chat cannot embed a widget. Complete still sends an spt_ token."
+            },
+            "seller_receives": {
+              "const": "shared_payment_token",
+              "description": "POST /checkout_sessions/{id}/complete accepts payment_data.token (spt_…) only, never raw card data."
+            },
+            "instructions": {
+              "type": "string",
+              "minLength": 1,
+              "description": "Same rules in prose for agents that read the discovery document as text."
+            }
+          }
+        }
+      }
+    },
+    "capabilities": {
+      "type": "object",
+      "additionalProperties": true,
+      "required": ["search", "ticket_types", "checkout", "agentic_payment", "fulfillment"],
+      "properties": {
+        "search": { "type": "boolean" },
+        "ticket_types": { "type": "boolean" },
+        "checkout": { "type": "boolean" },
+        "agentic_payment": { "type": "boolean" },
+        "fulfillment": {
+          "type": "array",
+          "minItems": 1,
+          "items": { "const": "digital" },
+          "description": "Ticket delivery is digital (email and wallet). Sellers do not collect a shipping address."
+        }
+      }
+    }
+  },
+  "allOf": [
+    {
+      "if": {
+        "type": "object",
+        "properties": {
+          "auth": {
+            "type": "object",
+            "properties": { "mode": { "const": "published" } },
+            "required": ["mode"]
+          }
+        },
+        "required": ["auth"]
+      },
+      "then": {
+        "properties": {
+          "auth": {
+            "type": "object",
+            "required": ["type", "mode", "version_header", "header", "scheme", "token"],
+            "properties": { "type": { "const": "bearer" } }
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "type": "object",
+        "properties": {
+          "auth": {
+            "type": "object",
+            "properties": { "mode": { "const": "out_of_band" } },
+            "required": ["mode"]
+          }
+        },
+        "required": ["auth"]
+      },
+      "then": {
+        "properties": {
+          "auth": {
+            "type": "object",
+            "required": ["type", "mode", "version_header", "header", "scheme", "instructions"],
+            "not": { "type": "object", "required": ["token"] },
+            "properties": { "type": { "const": "bearer" } }
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "type": "object",
+        "properties": {
+          "auth": {
+            "type": "object",
+            "properties": { "mode": { "const": "none" } },
+            "required": ["mode"]
+          }
+        },
+        "required": ["auth"]
+      },
+      "then": {
+        "properties": {
+          "auth": {
+            "type": "object",
+            "properties": { "type": { "const": "none" } }
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "type": "object",
+        "properties": {
+          "capabilities": {
+            "type": "object",
+            "properties": { "agentic_payment": { "const": true } },
+            "required": ["agentic_payment"]
+          }
+        },
+        "required": ["capabilities"]
+      },
+      "then": {
+        "properties": {
+          "payment": {
+            "type": "object",
+            "required": ["stripe_network_profile"]
+          }
+        }
+      }
+    }
+  ]
+}
