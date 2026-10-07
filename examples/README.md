@@ -4,7 +4,7 @@ Illustrative discovery files for a reference seller (Open Gate) and a generic in
 
 | Path | What it is |
 |------|------------|
-| `well-known/linguistix.json` | Example `/.well-known/linguistix.json` for Open Gate |
+| `well-known/linguistix.json` | Example `/.well-known/linguistix.json` for Open Gate, including `payment.collection` |
 | `llms.txt` | Example site index that points agents at that document |
 | `event-page.html` | Event page linking the discovery document and an event id |
 | `seller-stub/` | Generic adapter + handler + discovery builder |

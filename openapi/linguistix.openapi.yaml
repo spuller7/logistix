@@ -14,17 +14,35 @@ info:
     `servers[0].url` to the same mount.
 
     Checkout follows the Agentic Commerce Protocol lifecycle (create, update, complete).
-    Payment is a Stripe Shared Payment Token. The paying agent issues the token with
-    Stripe, scoped to `payment.stripe_network_profile` in the discovery document. The
-    seller confirms a PaymentIntent on `POST /checkout_sessions/{id}/complete`.
 
-    Fulfillment is digital (email and wallet). There is no shipping address.
+    Payment collection, also published as `payment.collection` on `/.well-known/linguistix.json`:
+
+    - The buyer must never type a card number, PAN, or CVC into the model or as free text in chat.
+    - The chat host collects the payment method in a third-party widget embedded in the chat
+      (Stripe Payment Element, Elements, or a wallet). A redirect to a new checkout page is not the primary path.
+    - The host issues a Stripe Shared Payment Token scoped to `payment.stripe_network_profile`.
+    - `POST /checkout_sessions/{id}/complete` receives `payment_data.token` (`spt_…`) only.
+      Raw card data is rejected.
+    - 3DS and other `requires_action` steps stay inside that same embedded widget when possible.
+    - A hosted `payment_url` is a last resort when the chat cannot embed a widget. The host
+      still completes this API with an `spt_…` token.
+
+    The seller confirms a PaymentIntent on complete. Fulfillment is digital (email and wallet).
+    There is no shipping address.
   license:
     name: UNLICENSED
   x-linguistix-product: Linguistix
   x-linguistix-protocol: logistix
   x-linguistix-protocol-version: "2026-08-25"
   x-acp-version: "2026-01-30"
+  x-linguistix-payment-collection:
+    cardholder_data_in_chat: forbidden
+    primary_ui: embedded_third_party
+    widgets: [stripe_payment_element, stripe_elements, wallet]
+    redirect_to_checkout_page: not_primary
+    requires_action: same_embedded_widget
+    hosted_payment_url: last_resort
+    seller_receives: shared_payment_token
 
 servers:
   - url: https://tickets.example.com/api/logistix
@@ -299,12 +317,18 @@ paths:
       operationId: completeCheckout
       summary: Pay and issue tickets
       description: |
-        Completes checkout (ACP complete). `payment_data.token` is a Stripe Shared Payment
-        Token (`spt_…`) the paying agent already issued to this seller's Stripe profile.
-        The seller confirms a PaymentIntent with
-        `payment_method_data[shared_payment_granted_token]` and then issues digital tickets.
+        Completes checkout (ACP complete). Call this only when `status` is `ready_for_payment`.
 
-        Call this only when `status` is `ready_for_payment`.
+        `payment_data.token` is a Stripe Shared Payment Token (`spt_…`) the chat host already
+        issued to this seller's Stripe profile. The host collected the payment method in an
+        embedded third-party widget (Stripe Payment Element, Elements, or a wallet), not by
+        asking the buyer to type a card number into chat, and not by redirecting to a new
+        checkout page. 3DS stays inside that widget when possible. A hosted payment URL is
+        a last resort and still ends in this call with an `spt_…` token.
+
+        This body never contains a PAN or CVC. Digit-only card numbers and CVCs are
+        `VALIDATION_ERROR`. The seller confirms a PaymentIntent with
+        `payment_method_data[shared_payment_granted_token]` and then issues digital tickets.
       parameters:
         - $ref: "#/components/parameters/LogistixVersion"
         - $ref: "#/components/parameters/CheckoutId"
@@ -878,7 +902,9 @@ components:
       properties:
         token:
           type: string
-          description: Shared Payment Token id (`spt_…`) issued to the seller's Stripe profile.
+          description: |
+            Shared Payment Token id (`spt_…`) issued to the seller's Stripe profile after the
+            buyer used an embedded payment widget. Never a card number, PAN, or CVC.
           examples: [spt_example]
         provider:
           const: stripe
@@ -899,7 +925,9 @@ components:
               type: string
         payment_method:
           type: string
-          description: Dev/test fallback Stripe PaymentMethod id. Live checkout sends an SPT in `token`.
+          description: |
+            Dev/test fallback Stripe PaymentMethod id (`pm_…`) when SPT APIs are unavailable.
+            Live checkout sends an SPT in `token`. Never a card number, PAN, or CVC.
 
     CompleteCheckoutInput:
       type: object

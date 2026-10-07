@@ -22,6 +22,11 @@ if (!parsedDiscovery.success) {
 }
 assert(parsedDiscovery.data.product === "Linguistix", "product name");
 assert(parsedDiscovery.data.protocol === "logistix", "protocol id");
+assert(parsedDiscovery.data.payment.collection.cardholder_data_in_chat === "forbidden", "no card data in chat");
+assert(parsedDiscovery.data.payment.collection.primary_ui === "embedded_third_party", "embedded widget");
+assert(parsedDiscovery.data.payment.collection.requires_action === "same_embedded_widget", "3ds in widget");
+assert(parsedDiscovery.data.payment.collection.hosted_payment_url === "last_resort", "hosted url last resort");
+assert(parsedDiscovery.data.payment.collection.seller_receives === "shared_payment_token", "spt only");
 
 JSON.parse(readFileSync(resolve(root, "discovery/linguistix.discovery.schema.json"), "utf8"));
 
@@ -205,6 +210,19 @@ const needsAction = await acting.handler({
   },
 });
 assert(needsAction.status === 402, `expected 402 requires_action, got ${needsAction.status}`);
+const pan = await acting.handler({
+  method: "POST",
+  path: `checkout_sessions/${heldId}/complete`,
+  headers: auth,
+  body: {
+    payment_data: {
+      token: "4242 4242 4242 4242",
+      provider: "stripe",
+      handler_id: "card_tokenized",
+    },
+  },
+});
+assert(pan.status === 400, `expected 400 for a PAN, got ${pan.status}`);
 const stillOpen = await acting.handler({
   method: "GET",
   path: `checkout_sessions/${heldId}`,

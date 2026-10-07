@@ -17,7 +17,7 @@ Payments use [Stripe Agentic Commerce](https://docs.stripe.com/agentic-commerce)
 | Role | Responsibility |
 |------|----------------|
 | Buyer | Asks for tickets in a chat agent and confirms the event, ticket type, quantity, and total. |
-| Agent | Discovers the seller, calls the HTTP API, collects a payment method in its own UI, and issues a Shared Payment Token with Stripe. |
+| Agent | Discovers the seller, calls the HTTP API, collects a payment method in an embedded third-party widget, and issues a Shared Payment Token with Stripe. |
 | Seller | Publishes discovery, implements `LogistixSellerAdapter`, mounts the handler, confirms the PaymentIntent, and issues tickets. |
 | Stripe | Issues the Shared Payment Token to the agent and accepts the seller's PaymentIntent. |
 
@@ -34,7 +34,7 @@ The agent speaks HTTP and Stripe. It does not import this package.
 | 3 | Choose ticket types | `GET /events/{id}/ticket-types` |
 | 4 | Open checkout and hold inventory | `POST /checkout_sessions` |
 | 5 | Attach the buyer; lock totals | `POST /checkout_sessions/{id}` |
-| 6 | Issue a Shared Payment Token to the seller's Stripe profile | Stripe `POST /v1/shared_payment/issued_tokens` |
+| 6 | Collect a payment method in an embedded widget, then issue a Shared Payment Token | Stripe `POST /v1/shared_payment/issued_tokens` |
 | 7 | Seller captures payment and issues tickets | `POST /checkout_sessions/{id}/complete` |
 | 8 | Read the order permalink | `GET /checkout_sessions/{id}` |
 
@@ -87,7 +87,7 @@ Agents ignore unknown properties. Required fields:
 | `api.mount` | Absolute URL of the HTTP API, no trailing slash. Conventional path: `/api/logistix`. |
 | `api.openapi` | Absolute URL of the OpenAPI document for that mount. |
 | `auth` | How to call the mount. See below. |
-| `payment` | Stripe Shared Payment Token acceptance: provider `stripe`, method `shared_payment_token`, handler `card_tokenized` / `dev.acp.tokenized.card`, accepted card brands, and the same Stripe profile as `seller`. |
+| `payment` | Stripe Shared Payment Token acceptance: provider `stripe`, method `shared_payment_token`, handler `card_tokenized` / `dev.acp.tokenized.card`, accepted card brands, and the same Stripe profile as `seller`. `payment.collection` states how the agent collects the payment method. |
 | `capabilities` | `search`, `ticket_types`, `checkout`, `agentic_payment`, and `fulfillment` (today only `digital`). |
 
 `buildSellerManifest` returns the in-band manifest for `GET {mount}/`. `seller`, `protocol_version` / `version`, capabilities, and the Stripe profile must match the well-known document. Manifest `endpoints` are mount-relative paths (`events`, `checkout_sessions`). The absolute mount lives only in the well-known file, because that file is what an agent has before it knows the mount.
@@ -115,7 +115,7 @@ Put a link to the discovery document in the site's `/llms.txt` so an agent that 
 
 ## Buy tickets
 
-- [Linguistix discovery](https://tickets.example.com/.well-known/linguistix.json): API mount, protocol version, auth, Stripe seller profile, and the OpenAPI URL.
+- [Linguistix discovery](https://tickets.example.com/.well-known/linguistix.json): API mount, protocol version, auth, Stripe seller profile, OpenAPI URL, and `payment.collection` (embedded widget, then Shared Payment Token; no card numbers in chat).
 ```
 
 ### Event pages
@@ -196,15 +196,39 @@ Complete (agent → seller):
 }
 ```
 
-`payment_data.token` is the Shared Payment Token id. `payment_data.payment_method` is a dev-only Stripe PaymentMethod fallback for sellers whose tests cannot mint an SPT. Live checkout sends the token.
+`payment_data.token` is the Shared Payment Token id (`spt_…`). The seller rejects a card number or CVC in `token` or `payment_method` with `VALIDATION_ERROR`. `payment_data.payment_method` is a dev-only Stripe PaymentMethod id (`pm_…`) for sellers whose tests cannot mint an SPT. Live checkout sends the token.
 
 The completed session includes `order.order_number`, `order.permalink_url`, and `order.tickets`.
 
+## Payment collection
+
+These rules are normative. Discovery publishes them on every seller as `payment.collection` (`LINGUISTIX_PAYMENT_COLLECTION`). The OpenAPI description repeats them. Agents follow this sequence: embedded widget, then Shared Payment Token, then `POST …/complete`.
+
+1. The buyer must never enter a card number, PAN, or CVC into the model or as free text in the chat. The agent must not ask for those values, parse them out of a message, or place them in any Linguistix field.
+2. The chat host collects the payment method with a third-party payment UI embedded in the chat interface. Examples: Stripe Payment Element, Stripe Elements, and wallets. That embedded widget is the primary path.
+3. A redirect to a separate checkout page is not the primary path.
+4. The host issues a Stripe Shared Payment Token (or the Stripe equivalent for this flow) to `payment.stripe_network_profile`. `POST /checkout_sessions/{id}/complete` receives `payment_data` with that `spt_…` token. The seller never receives raw card data.
+5. When Stripe returns `requires_action` (including 3DS), the host presents it inside the same embedded widget when the widget can do so.
+6. An external `payment_url` or other hosted payment page is a last resort, only when the chat cannot embed a widget. After the buyer finishes on that page, the host still completes Linguistix with an `spt_…` token. The seller API does not return a `payment_url`, and complete does not accept one.
+
+`payment.collection` values:
+
+| Field | Value | Meaning |
+|-------|-------|---------|
+| `cardholder_data_in_chat` | `forbidden` | No PAN or CVC in the model or in chat text. |
+| `primary_ui` | `embedded_third_party` | Third-party payment UI embedded in the chat. |
+| `widgets` | `stripe_payment_element`, `stripe_elements`, `wallet` | Acceptable embedded widgets. |
+| `redirect_to_checkout_page` | `not_primary` | A new checkout page is not the primary path. |
+| `requires_action` | `same_embedded_widget` | 3DS stays in that widget when possible. |
+| `hosted_payment_url` | `last_resort` | Hosted link only if a widget cannot be embedded. |
+| `seller_receives` | `shared_payment_token` | Complete carries `spt_…` only. |
+| `instructions` | string | The same rules in one paragraph. |
+
 ## Issuing a Shared Payment Token
 
-Issuance is the paying agent's request to Stripe, using the profile from discovery. This package does not issue tokens.
+Issuance is the paying agent's request to Stripe, using the profile from discovery, after the embedded widget has produced a PaymentMethod. This package does not issue tokens.
 
-The agent collects a PaymentMethod in its own UI, then:
+The host collects that PaymentMethod in the embedded widget, then:
 
 ```
 POST /v1/shared_payment/issued_tokens
@@ -213,14 +237,14 @@ Stripe-Version: 2026-04-22.preview
 
 | Parameter | Source |
 |-----------|--------|
-| `payment_method` | PaymentMethod id from the agent's payment UI |
+| `payment_method` | PaymentMethod id from the embedded widget. Never a PAN or CVC. |
 | `seller_details[network_business_profile]` | `payment.stripe_network_profile` |
 | `usage_limits[currency]` | Checkout `currency` |
 | `usage_limits[max_amount]` | Checkout `amount_total` in cents |
 | `usage_limits[expires_at]` | Unix expiry the agent chooses (a 30-minute window is a reasonable default) |
-| `return_url` | Optional URL if Stripe must send the buyer back to the agent for authentication |
+| `return_url` | Optional. Use it only when the embedded widget cannot finish authentication in place. It is not a substitute for the in-chat widget. |
 
-The response id (`spt_…`) is `payment_data.token` on complete. If Stripe returns `shared_payment.issued_token.requires_action`, the agent finishes authentication in its own UI. The buyer stays in the chat agent.
+The response id (`spt_…`) is `payment_data.token` on complete. If Stripe returns `shared_payment.issued_token.requires_action`, the host finishes 3DS inside the same embedded widget when possible. The buyer stays in the chat. A hosted payment URL is only the last resort described above.
 
 Stripe's preview API can move. `STRIPE_AGENTIC_API_VERSION` in this package (`2026-04-22.preview`) is the version seller confirm calls use. Agents should follow current Stripe Agentic Commerce docs if issuance parameters change, and still send an `spt_…` token the seller can confirm.
 
@@ -239,7 +263,7 @@ payment_method_data[shared_payment_granted_token]=spt_...
 payment_method_types[0]=card
 ```
 
-`confirmPaymentIntentWithSharedToken` performs that call. Pass `connectAccountId` when the charge is on a connected account (`Stripe-Account`). Issue tickets only after the PaymentIntent is in a capturable or succeeded state. If Stripe still needs buyer authentication, respond with `PAYMENT_ACTION_REQUIRED` and leave the checkout uncompleted so the agent can retry.
+`confirmPaymentIntentWithSharedToken` performs that call. Pass `connectAccountId` when the charge is on a connected account (`Stripe-Account`). Issue tickets only after the PaymentIntent is in a capturable or succeeded state. If Stripe still needs buyer authentication, respond with `PAYMENT_ACTION_REQUIRED` and leave the checkout uncompleted so the host can finish 3DS in the embedded widget and retry.
 
 Local seller tests can mint a granted token without an agent via `createTestGrantedToken` (`POST /v1/test_helpers/shared_payment/granted_tokens`, default PaymentMethod `pm_card_visa`).
 

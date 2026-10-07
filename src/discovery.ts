@@ -23,6 +23,22 @@ export const LINGUISTIX_OPENAPI_WELL_KNOWN_PATH = "/.well-known/linguistix-opena
 /** Conventional HTTP mount for `createLogistixHandler`. Sellers may choose another path. */
 export const CONVENTIONAL_API_MOUNT_PATH = "/api/logistix";
 
+/**
+ * Payment-collection rules every discovery document repeats for the paying agent.
+ * The buyer uses an embedded third-party widget. Checkout complete receives an SPT.
+ */
+export const LINGUISTIX_PAYMENT_COLLECTION = {
+  cardholder_data_in_chat: "forbidden",
+  primary_ui: "embedded_third_party",
+  widgets: ["stripe_payment_element", "stripe_elements", "wallet"],
+  redirect_to_checkout_page: "not_primary",
+  requires_action: "same_embedded_widget",
+  hosted_payment_url: "last_resort",
+  seller_receives: "shared_payment_token",
+  instructions:
+    "Collect the payment method in a third-party widget embedded in the chat (Stripe Payment Element, Elements, or a wallet). The buyer must never type a card number, PAN, or CVC into the chat or the model. Issue a Stripe Shared Payment Token to payment.stripe_network_profile and send only that spt_ token as payment_data.token on checkout complete. Keep 3DS and requires_action inside that same embedded widget when possible. Open a hosted payment URL only as a last resort when the chat cannot embed a widget, then still complete with an spt_ token.",
+} as const;
+
 const absoluteHttpUrl = z.string().refine((value) => {
   try {
     const url = new URL(value);
@@ -66,6 +82,16 @@ export const linguistixDiscoveryDocumentSchema = z
       accepted_brands: z.array(z.string().min(1)).min(1),
       stripe_network_profile: z.string().min(1).optional(),
       stripe_account: z.string().min(1).optional(),
+      collection: z.object({
+        cardholder_data_in_chat: z.literal("forbidden"),
+        primary_ui: z.literal("embedded_third_party"),
+        widgets: z.array(z.enum(["stripe_payment_element", "stripe_elements", "wallet"])).min(1),
+        redirect_to_checkout_page: z.literal("not_primary"),
+        requires_action: z.literal("same_embedded_widget"),
+        hosted_payment_url: z.literal("last_resort"),
+        seller_receives: z.literal("shared_payment_token"),
+        instructions: z.string().min(1),
+      }),
     }),
     capabilities: z.object({
       search: z.boolean(),
@@ -292,6 +318,7 @@ export function buildLinguistixDiscoveryDocument(
       handler_name: "dev.acp.tokenized.card" as const,
       requires_delegate_payment: true as const,
       accepted_brands: brands,
+      collection: LINGUISTIX_PAYMENT_COLLECTION,
       ...(input.seller.stripeNetworkProfile
         ? { stripe_network_profile: input.seller.stripeNetworkProfile }
         : {}),

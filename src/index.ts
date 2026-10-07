@@ -43,6 +43,7 @@ export {
 } from "./stripe-spt.js";
 export type { StripeRaw, ConfirmWithSptInput } from "./stripe-spt.js";
 export {
+  LINGUISTIX_PAYMENT_COLLECTION,
   LINGUISTIX_WELL_KNOWN_PATH,
   LOGISTIX_WELL_KNOWN_ALIAS_PATH,
   LINGUISTIX_OPENAPI_WELL_KNOWN_PATH,

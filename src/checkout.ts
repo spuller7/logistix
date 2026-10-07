@@ -136,13 +136,14 @@ export const TICKET_PURCHASE_FLOW = [
     step: 6,
     name: "issue_shared_payment_token",
     description:
-      "The paying agent issues a Stripe Shared Payment Token scoped to payment.stripe_network_profile from the discovery document. Linguistix does not issue tokens.",
+      "Collect the payment method in a third-party widget embedded in the chat (Stripe Payment Element, Elements, or a wallet). Never take a card number, PAN, or CVC as chat text. Issue a Stripe Shared Payment Token scoped to payment.stripe_network_profile. Keep 3DS inside that widget when possible. A hosted payment URL is a last resort only.",
     http: "Stripe POST /v1/shared_payment/issued_tokens",
   },
   {
     step: 7,
     name: "complete",
-    description: "Send the SPT. The seller confirms a PaymentIntent and issues digital tickets.",
+    description:
+      "POST payment_data.token (spt_…) only. The seller confirms a PaymentIntent and issues digital tickets. The body never contains raw card data.",
     http: "POST /checkout_sessions/{id}/complete",
   },
   {

@@ -114,13 +114,14 @@
         "handler_id",
         "handler_name",
         "requires_delegate_payment",
-        "accepted_brands"
+        "accepted_brands",
+        "collection"
       ],
       "properties": {
         "provider": { "const": "stripe" },
         "method": {
           "const": "shared_payment_token",
-          "description": "The paying agent issues a Stripe Shared Payment Token and sends it as payment_data.token on checkout complete."
+          "description": "The paying agent collects a payment method in an embedded third-party widget, issues a Stripe Shared Payment Token, and sends it as payment_data.token on checkout complete. See payment.collection."
         },
         "handler_id": { "const": "card_tokenized" },
         "handler_name": { "const": "dev.acp.tokenized.card" },
@@ -135,7 +136,61 @@
           "minLength": 1,
           "description": "Profile passed to Stripe as seller_details[network_business_profile] when the agent issues the Shared Payment Token."
         },
-        "stripe_account": { "type": "string", "minLength": 1 }
+        "stripe_account": { "type": "string", "minLength": 1 },
+        "collection": {
+          "type": "object",
+          "additionalProperties": true,
+          "description": "How the paying agent collects a payment method. These values are fixed for every Linguistix seller.",
+          "required": [
+            "cardholder_data_in_chat",
+            "primary_ui",
+            "widgets",
+            "redirect_to_checkout_page",
+            "requires_action",
+            "hosted_payment_url",
+            "seller_receives",
+            "instructions"
+          ],
+          "properties": {
+            "cardholder_data_in_chat": {
+              "const": "forbidden",
+              "description": "The buyer must never type a card number, PAN, or CVC into the model or as free text in chat."
+            },
+            "primary_ui": {
+              "const": "embedded_third_party",
+              "description": "Collect the payment method with a third-party payment UI embedded in the chat interface."
+            },
+            "widgets": {
+              "type": "array",
+              "minItems": 1,
+              "items": {
+                "enum": ["stripe_payment_element", "stripe_elements", "wallet"]
+              },
+              "description": "Acceptable embedded widgets, such as the Stripe Payment Element, Elements, or a wallet."
+            },
+            "redirect_to_checkout_page": {
+              "const": "not_primary",
+              "description": "Sending the buyer to a separate checkout page is not the primary path."
+            },
+            "requires_action": {
+              "const": "same_embedded_widget",
+              "description": "3DS and other requires_action steps stay inside the same embedded payment widget when possible."
+            },
+            "hosted_payment_url": {
+              "const": "last_resort",
+              "description": "An external payment_url or hosted payment page is a last resort when the chat cannot embed a widget. Complete still sends an spt_ token."
+            },
+            "seller_receives": {
+              "const": "shared_payment_token",
+              "description": "POST /checkout_sessions/{id}/complete accepts payment_data.token (spt_…) only, never raw card data."
+            },
+            "instructions": {
+              "type": "string",
+              "minLength": 1,
+              "description": "Same rules in prose for agents that read the discovery document as text."
+            }
+          }
+        }
       }
     },
     "capabilities": {

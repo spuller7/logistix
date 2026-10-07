@@ -150,7 +150,10 @@ export type CheckoutSession = {
 };
 
 export type PaymentData = {
-  /** Shared Payment Token id (`spt_…`) issued to the seller's Stripe profile. */
+  /**
+   * Shared Payment Token id (`spt_…`) issued to the seller's Stripe profile.
+   * Card numbers, PANs, and CVCs are rejected.
+   */
   token: string;
   provider: "stripe";
   handler_id: PaymentHandlerId;
@@ -162,8 +165,8 @@ export type PaymentData = {
     country?: string;
   };
   /**
-   * Dev/test fallback: a Stripe PaymentMethod id when SPT APIs are unavailable.
-   * Live checkout sends an SPT in `token`.
+   * Dev/test fallback: a Stripe PaymentMethod id (`pm_…`) when SPT APIs are unavailable.
+   * Live checkout sends an SPT in `token`. This field is never a PAN or CVC.
    */
   payment_method?: string;
 };

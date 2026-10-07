@@ -17,10 +17,16 @@ Buyer → any agent → discover → HTTP checkout → seller → Stripe
 | Discover the seller | `llms.txt`, the event page, then `GET /.well-known/linguistix.json` |
 | Read the API | OpenAPI URL in that document |
 | Find tickets and check out | HTTP on `api.mount` |
-| Pay | Agent issues a Shared Payment Token to the seller's Stripe profile, then `POST …/complete` |
+| Pay | Embedded Stripe Payment Element (or wallet) in the chat → Shared Payment Token → `POST …/complete` with `spt_…` |
 | Issue tickets | Seller confirms the PaymentIntent and returns the order |
 
 The purchase steps are `TICKET_PURCHASE_FLOW`. The normative detail is [PROTOCOL.md](./PROTOCOL.md).
+
+## Payment collection
+
+The buyer never types a card number, PAN, or CVC into the chat or the model. The chat host collects the payment method in a third-party widget embedded in the chat (Stripe Payment Element, Elements, or a wallet). A redirect to a separate checkout page is not the primary path. 3DS stays in that same widget when possible. A hosted payment URL is a last resort only, and checkout complete still receives an `spt_…` token, never raw card data.
+
+Every discovery document repeats this as `payment.collection`. The seller handler rejects a digit-only card number or CVC in `payment_data.token`.
 
 ## Discovery
 
