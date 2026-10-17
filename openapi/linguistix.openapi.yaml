@@ -20,9 +20,14 @@ info:
     - The buyer must never type a card number, PAN, or CVC into the model or as free text in chat.
     - The chat host collects the payment method in a third-party widget embedded in the chat
       (Stripe Payment Element, Elements, or a wallet). A redirect to a new checkout page is not the primary path.
-    - The host issues a Stripe Shared Payment Token scoped to `payment.stripe_network_profile`.
+    - The host issues a Stripe Shared Payment Token scoped to the checkout session's
+      `stripe_network_profile` when that field is set (the organizer's connected-account
+      profile on a Stripe Connect direct charge). Otherwise it uses the seller-wide
+      `payment.stripe_network_profile` from discovery (a `profile_…` id).
     - `POST /checkout_sessions/{id}/complete` receives `payment_data.token` (`spt_…`) only.
       Raw card data is rejected.
+    - Send `Idempotency-Key` on create and complete. The same header is accepted on update
+      and cancel. The seller forwards it to Stripe when confirming the PaymentIntent.
     - 3DS and other `requires_action` steps stay inside that same embedded widget when possible.
     - A hosted `payment_url` is a last resort when the chat cannot embed a widget. The host
       still completes this API with an `spt_…` token.
@@ -208,8 +213,11 @@ paths:
       description: |
         Opens a stateful checkout (ACP create). The seller holds inventory and returns totals.
         Status stays `incomplete` until a buyer email is present and inventory is valid.
+        The session's `stripe_network_profile` is the Stripe profile the agent must grant
+        the Shared Payment Token to. It can differ from the seller manifest.
       parameters:
         - $ref: "#/components/parameters/LogistixVersion"
+        - $ref: "#/components/parameters/IdempotencyKey"
       requestBody:
         required: true
         content:
@@ -279,6 +287,7 @@ paths:
         and valid inventory becomes `ready_for_payment`.
       parameters:
         - $ref: "#/components/parameters/LogistixVersion"
+        - $ref: "#/components/parameters/IdempotencyKey"
         - $ref: "#/components/parameters/CheckoutId"
       requestBody:
         required: true
@@ -320,7 +329,8 @@ paths:
         Completes checkout (ACP complete). Call this only when `status` is `ready_for_payment`.
 
         `payment_data.token` is a Stripe Shared Payment Token (`spt_…`) the chat host already
-        issued to this seller's Stripe profile. The host collected the payment method in an
+        issued to this checkout's `stripe_network_profile` (or the seller-wide profile when
+        the session omits it). The host collected the payment method in an
         embedded third-party widget (Stripe Payment Element, Elements, or a wallet), not by
         asking the buyer to type a card number into chat, and not by redirecting to a new
         checkout page. 3DS stays inside that widget when possible. A hosted payment URL is
@@ -331,6 +341,7 @@ paths:
         `payment_method_data[shared_payment_granted_token]` and then issues digital tickets.
       parameters:
         - $ref: "#/components/parameters/LogistixVersion"
+        - $ref: "#/components/parameters/IdempotencyKey"
         - $ref: "#/components/parameters/CheckoutId"
       requestBody:
         required: true
@@ -380,6 +391,7 @@ paths:
       summary: Cancel a checkout and release held inventory
       parameters:
         - $ref: "#/components/parameters/LogistixVersion"
+        - $ref: "#/components/parameters/IdempotencyKey"
         - $ref: "#/components/parameters/CheckoutId"
       responses:
         "200":
@@ -431,6 +443,21 @@ components:
       required: true
       schema:
         type: string
+    IdempotencyKey:
+      name: Idempotency-Key
+      in: header
+      required: false
+      description: |
+        Caller-generated key for a mutating checkout call. Send it on create and complete,
+        and optionally on update and cancel. At most 255 characters. The handler trims
+        whitespace and passes the key to the seller adapter. The handler does not store it.
+        The seller forwards it when confirming the PaymentIntent and uses it to keep a retry
+        from opening another hold or capturing twice.
+      schema:
+        type: string
+        minLength: 1
+        maxLength: 255
+        example: checkout-evt_harbor_lights-ada-1
 
   headers:
     LogistixVersion:
@@ -465,7 +492,9 @@ components:
           schema:
             $ref: "#/components/schemas/ErrorBody"
     SellerError:
-      description: Unexpected seller failure.
+      description: |
+        Unexpected seller failure. `error.message` is a generic string and does not include
+        the internal exception text. Sellers log that text on the server.
       content:
         application/json:
           schema:
@@ -738,7 +767,10 @@ components:
               description: Stripe account id when the seller publishes one.
             network_profile:
               type: string
-              description: Stripe network business profile the Shared Payment Token is scoped to.
+              description: |
+                Stripe profile id (`profile_…`) the Shared Payment Token is granted to.
+                On a checkout session this matches `stripe_network_profile`.
+              examples: [profile_example_harbor]
             accepted_brands:
               type: array
               items:
@@ -853,6 +885,23 @@ components:
           format: date-time
         capabilities:
           $ref: "#/components/schemas/CheckoutCapabilities"
+        stripe_network_profile:
+          type: string
+          description: |
+            Stripe profile id (`profile_…`) the agent must pass as
+            `seller_details[network_business_profile]` when issuing the Shared Payment Token
+            for this checkout. For a Stripe Connect direct charge this is the organizer's
+            connected-account profile and can differ from the seller-wide profile on the
+            manifest and on `/.well-known/linguistix.json`. When this field is absent, use
+            discovery `payment.stripe_network_profile`.
+          examples: [profile_example_harbor]
+        stripe_account:
+          type: string
+          description: |
+            Stripe account id (`acct_…`) for this checkout when the seller charges a
+            connected account. The agent still grants the SPT using `stripe_network_profile`.
+            The seller sends this value as the `Stripe-Account` header on PaymentIntent confirm.
+          examples: [acct_example_harbor]
         messages:
           type: array
           items:
@@ -903,8 +952,9 @@ components:
         token:
           type: string
           description: |
-            Shared Payment Token id (`spt_…`) issued to the seller's Stripe profile after the
-            buyer used an embedded payment widget. Never a card number, PAN, or CVC.
+            Shared Payment Token id (`spt_…`) issued to this checkout's `stripe_network_profile`
+            (or the seller-wide profile when the session omits it) after the buyer used an
+            embedded payment widget. Never a card number, PAN, or CVC.
           examples: [spt_example]
         provider:
           const: stripe
@@ -969,6 +1019,11 @@ components:
               type: string
             stripe_network_profile:
               type: string
+              description: |
+                Default Stripe profile (`profile_…`) for this seller. Checkout sessions may
+                set a different `stripe_network_profile` for a connected-account organizer.
+                Agents grant the SPT to the session profile when the session includes one.
+              examples: [profile_example_open_gate]
             stripe_account:
               type: string
         capabilities:

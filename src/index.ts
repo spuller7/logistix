@@ -6,7 +6,7 @@ export {
   PRODUCT_NAME,
   PROTOCOL_DISPLAY_NAME,
 } from "./version.js";
-export { LogistixError, isLogistixError } from "./errors.js";
+export { LogistixError, isLogistixError, UNEXPECTED_SELLER_ERROR_MESSAGE } from "./errors.js";
 export type { LogistixErrorCode } from "./errors.js";
 export type * from "./types.js";
 export {
@@ -17,6 +17,7 @@ export {
   updateCheckoutInputSchema,
   completeCheckoutInputSchema,
   paymentDataSchema,
+  idempotencyKeySchema,
 } from "./schemas.js";
 export {
   TICKET_PURCHASE_FLOW,
@@ -34,6 +35,7 @@ export type {
   LogistixHandlerOptions,
   LogistixHttpRequest,
   LogistixHttpResponse,
+  CheckoutRequestContext,
 } from "./seller.js";
 export { handleLogistixRequest, createLogistixHandler } from "./http.js";
 export {
@@ -41,7 +43,7 @@ export {
   confirmPaymentIntentWithSharedToken,
   LOGISTIX_STRIPE_VERSION_HEADER,
 } from "./stripe-spt.js";
-export type { StripeRaw, ConfirmWithSptInput } from "./stripe-spt.js";
+export type { StripeRaw, ConfirmWithSptInput, PaymentIntentHooks } from "./stripe-spt.js";
 export {
   LINGUISTIX_PAYMENT_COLLECTION,
   LINGUISTIX_WELL_KNOWN_PATH,

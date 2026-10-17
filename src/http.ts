@@ -3,14 +3,16 @@
  * The well-known discovery document is served at the site root, outside this handler.
  */
 import { LOGISTIX_VERSION } from "./version.js";
-import { LogistixError, isLogistixError } from "./errors.js";
+import { UNEXPECTED_SELLER_ERROR_MESSAGE, LogistixError, isLogistixError } from "./errors.js";
 import {
   completeCheckoutInputSchema,
   createCheckoutInputSchema,
   eventSearchQuerySchema,
+  idempotencyKeySchema,
   updateCheckoutInputSchema,
 } from "./schemas.js";
 import type {
+  CheckoutRequestContext,
   LogistixHandlerOptions,
   LogistixHttpRequest,
   LogistixHttpResponse,
@@ -49,6 +51,16 @@ function jsonHeaders(): Record<string, string> {
     "Logistix-Version": LOGISTIX_VERSION,
     "Cache-Control": "no-store",
   };
+}
+
+function mutationContext(req: LogistixHttpRequest): CheckoutRequestContext {
+  const raw = header(req, "idempotency-key");
+  if (raw == null || raw.trim() === "") return {};
+  const parsed = idempotencyKeySchema.safeParse(raw);
+  if (!parsed.success) {
+    throw new LogistixError("VALIDATION_ERROR", "Idempotency-Key must be at most 255 characters", 400);
+  }
+  return { idempotencyKey: parsed.data };
 }
 
 function authorize(req: LogistixHttpRequest, options: LogistixHandlerOptions) {
@@ -130,7 +142,7 @@ export async function handleLogistixRequest(
       if (!parsed.success) {
         throw new LogistixError("VALIDATION_ERROR", parsed.error.message, 400);
       }
-      const session = await adapter.createCheckout(parsed.data);
+      const session = await adapter.createCheckout(parsed.data, mutationContext(req));
       return { status: 201, body: session, headers: jsonHeaders() };
     }
 
@@ -145,7 +157,7 @@ export async function handleLogistixRequest(
       if (!parsed.success) {
         throw new LogistixError("VALIDATION_ERROR", parsed.error.message, 400);
       }
-      const session = await adapter.updateCheckout(parts[1]!, parsed.data);
+      const session = await adapter.updateCheckout(parts[1]!, parsed.data, mutationContext(req));
       return { status: 200, body: session, headers: jsonHeaders() };
     }
 
@@ -159,7 +171,7 @@ export async function handleLogistixRequest(
       if (!parsed.success) {
         throw new LogistixError("VALIDATION_ERROR", parsed.error.message, 400);
       }
-      const session = await adapter.completeCheckout(parts[1]!, parsed.data);
+      const session = await adapter.completeCheckout(parts[1]!, parsed.data, mutationContext(req));
       return { status: 200, body: session, headers: jsonHeaders() };
     }
 
@@ -169,7 +181,7 @@ export async function handleLogistixRequest(
       parts[2] === "cancel" &&
       method === "POST"
     ) {
-      const session = await adapter.cancelCheckout(parts[1]!);
+      const session = await adapter.cancelCheckout(parts[1]!, mutationContext(req));
       return { status: 200, body: session, headers: jsonHeaders() };
     }
 
@@ -178,10 +190,14 @@ export async function handleLogistixRequest(
     if (isLogistixError(err)) {
       return { status: err.status, body: err.toJSON(), headers: jsonHeaders() };
     }
-    const message = err instanceof Error ? err.message : "Unexpected seller error";
+    try {
+      options.onError?.(err, { method: req.method, path: req.path });
+    } catch {
+      // A failing logger must not change the client response or leak the original error.
+    }
     return {
       status: 500,
-      body: { error: { code: "SELLER_ERROR", message } },
+      body: { error: { code: "SELLER_ERROR", message: UNEXPECTED_SELLER_ERROR_MESSAGE } },
       headers: jsonHeaders(),
     };
   }

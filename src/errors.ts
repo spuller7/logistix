@@ -1,3 +1,6 @@
+/** Client-facing message for unexpected failures. Internal details stay on the server. */
+export const UNEXPECTED_SELLER_ERROR_MESSAGE = "Unexpected seller error";
+
 export type LogistixErrorCode =
   | "UNAUTHORIZED"
   | "NOT_FOUND"

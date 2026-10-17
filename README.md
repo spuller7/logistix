@@ -17,7 +17,7 @@ Buyer → any agent → discover → HTTP checkout → seller → Stripe
 | Discover the seller | `llms.txt`, the event page, then `GET /.well-known/linguistix.json` |
 | Read the API | OpenAPI URL in that document |
 | Find tickets and check out | HTTP on `api.mount` |
-| Pay | Embedded Stripe Payment Element (or wallet) in the chat → Shared Payment Token → `POST …/complete` with `spt_…` |
+| Pay | Embedded Stripe Payment Element (or wallet) in the chat → Shared Payment Token granted to the checkout session's `profile_…` → `POST …/complete` with `spt_…` |
 | Issue tickets | Seller confirms the PaymentIntent and returns the order |
 
 The purchase steps are `TICKET_PURCHASE_FLOW`. The normative detail is [PROTOCOL.md](./PROTOCOL.md).
@@ -56,19 +56,25 @@ import {
 } from "logistix";
 ```
 
-Host the object from `buildLinguistixDiscoveryDocument` at `LINGUISTIX_WELL_KNOWN_PATH`. Mount `createLogistixHandler({ adapter, apiKey })` at `api.mount`. On checkout complete, confirm the Shared Payment Token with `confirmPaymentIntentWithSharedToken` before issuing tickets.
+Host the object from `buildLinguistixDiscoveryDocument` at `LINGUISTIX_WELL_KNOWN_PATH`. Mount `createLogistixHandler({ adapter, apiKey, onError })` at `api.mount`. Put the organizer's Stripe profile on each checkout session (`stripe_network_profile`) when it differs from the seller-wide profile. On checkout complete, confirm the Shared Payment Token with `confirmPaymentIntentWithSharedToken` before issuing tickets. Forward the checkout `Idempotency-Key`, and pass `hooks.inputs.tax.calculation` when the charge uses Stripe Tax.
 
-`GET` on the mount returns a seller manifest (`buildSellerManifest`) for callers that already know the mount. The well-known file is how they learn that URL.
+`GET` on the mount returns a seller manifest (`buildSellerManifest`) for callers that already know the mount. The well-known file is how they learn that URL. The manifest profile is the default. The checkout session profile is the one the agent grants the token to.
 
 ```json
 "logistix": "file:../logistix"
 ```
 
-Published package name, when you ship it: `logistix`.
+This package is not published to npm. A GitHub install pins a commit and runs `prepare`, which compiles `src` to `dist` (`*.js` and `*.d.ts`). The consumer does not transpile the package.
+
+```json
+"logistix": "github:spuller7/logistix#<commit>"
+```
+
+`exports` points at `dist/index.js`. Seller library, when you ship it, stays named `logistix`.
 
 ## What the package exports
 
-Seller adapter and HTTP handler, checkout helpers, request schemas, discovery builder, and Stripe helpers that **confirm** a granted Shared Payment Token (`confirmPaymentIntentWithSharedToken`, plus `createTestGrantedToken` for seller tests).
+Seller adapter and HTTP handler, checkout helpers, request schemas, discovery builder, and Stripe helpers that **confirm** a granted Shared Payment Token (`confirmPaymentIntentWithSharedToken`, plus `createTestGrantedToken` for seller tests). Confirm accepts `idempotencyKey` and a `hooks` object (Stripe Tax uses `hooks.inputs.tax.calculation`). Unexpected handler failures return a generic 500; pass `onError` to log the cause.
 
 Shared Payment Token **issuance** is the paying agent's call to Stripe. The request shape is in [PROTOCOL.md](./PROTOCOL.md#issuing-a-shared-payment-token). This package does not issue tokens.
 

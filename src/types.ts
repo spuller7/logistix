@@ -121,7 +121,12 @@ export type PaymentHandler = {
   requires_delegate_payment: true;
   psp: "stripe";
   config: {
+    /** Stripe account id (`acct_…`) when this handler charges a connected account. */
     merchant_id?: string;
+    /**
+     * Stripe profile id (`profile_…`) the agent grants the Shared Payment Token to.
+     * On a checkout session this echoes `stripe_network_profile`.
+     */
     network_profile?: string;
     accepted_brands: string[];
   };
@@ -146,6 +151,22 @@ export type CheckoutSession = {
   amount_total: MoneyCents;
   expires_at: IsoDateTime;
   capabilities: CheckoutCapabilities;
+  /**
+   * Stripe profile id (`profile_…`) the agent must grant the Shared Payment Token to
+   * for this checkout (`seller_details[network_business_profile]`).
+   *
+   * Connect direct charges use the organizer's connected-account profile, which can
+   * differ from the seller-wide profile on the manifest and discovery document.
+   * When this is omitted, agents use discovery `payment.stripe_network_profile`.
+   * `capabilities.payment.handlers[].config.network_profile` echoes this value.
+   */
+  stripe_network_profile?: string;
+  /**
+   * Connected account (`acct_…`) the seller confirms the PaymentIntent on when this
+   * checkout is a direct charge. The agent still grants the SPT using
+   * `stripe_network_profile`, not this account id.
+   */
+  stripe_account?: string;
   messages?: { type: "info" | "error" | "warning"; text: string }[];
 };
 
@@ -220,6 +241,12 @@ export type SellerManifest = {
   seller: {
     id: string;
     name: string;
+    /**
+     * Default Stripe profile (`profile_…`) for this seller.
+     * A checkout session may set a different `stripe_network_profile` for the
+     * organizer's connected account. Agents grant the SPT to the session profile
+     * when the session includes one.
+     */
     stripe_network_profile?: string;
     stripe_account?: string;
   };

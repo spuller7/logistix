@@ -46,7 +46,8 @@
         "stripe_network_profile": {
           "type": "string",
           "minLength": 1,
-          "description": "Stripe network business profile. Required when capabilities.agentic_payment is true. Must match payment.stripe_network_profile."
+          "description": "Default Stripe profile id (profile_…). Required when capabilities.agentic_payment is true. Must match payment.stripe_network_profile. A checkout session may set its own stripe_network_profile for a connected-account organizer; agents grant the Shared Payment Token to the session profile when that field is present.",
+          "examples": ["profile_example_open_gate"]
         },
         "stripe_account": {
           "type": "string",
@@ -134,7 +135,8 @@
         "stripe_network_profile": {
           "type": "string",
           "minLength": 1,
-          "description": "Profile passed to Stripe as seller_details[network_business_profile] when the agent issues the Shared Payment Token."
+          "description": "Default Stripe profile (profile_…) passed to Stripe as seller_details[network_business_profile] when a checkout session does not set stripe_network_profile. For a Connect direct charge the session carries the organizer's profile and the agent grants the token to that session profile.",
+          "examples": ["profile_example_open_gate"]
         },
         "stripe_account": { "type": "string", "minLength": 1 },
         "collection": {

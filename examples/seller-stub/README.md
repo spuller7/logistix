@@ -10,6 +10,8 @@ In-memory Linguistix seller. It is a wiring example for the adapter, HTTP handle
 
 Host `discovery` at the site root (`/.well-known/linguistix.json`). Mount `handler` at `discovery.api.mount`. The handler does not serve the well-known file.
 
+The sample events use organizer Stripe profiles (`profile_example_harbor`, `profile_example_jazz`) that differ from the platform profile on the manifest (`profile_example_seller`). Checkout responses carry `stripe_network_profile` and `stripe_account` for that organizer. `mutations` records the `Idempotency-Key` passed into create, update, complete, and cancel.
+
 On `completeCheckout`, a production seller calls `confirmPaymentIntentWithSharedToken` before issuing tickets. Pass that call as `capturePayment` if you want the stub to wait for a PaymentIntent status.
 
 ```ts
@@ -26,6 +28,10 @@ const { handler, discovery } = createSampleSeller({
       currency: input.currency,
       sharedPaymentToken: input.sharedPaymentToken,
       receiptEmail: input.receiptEmail,
+      connectAccountId: input.stripeAccount,
+      idempotencyKey: input.idempotencyKey,
+      // Omit hooks when this charge has no Stripe Tax calculation.
+      hooks: { inputs: { tax: { calculation: "taxcalc_..." } } },
     }),
 });
 ```

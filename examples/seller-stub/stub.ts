@@ -14,6 +14,7 @@ import {
   deriveCheckoutStatus,
   digitalFulfillmentOption,
   stripeCardHandler,
+  type CheckoutRequestContext,
   type CheckoutSession,
   type CheckoutSessionWithOrder,
   type CompleteCheckoutInput,
@@ -34,8 +35,29 @@ function clone<T>(value: T): T {
 const SELLER = {
   id: "example-seller",
   name: "Example Seller",
-  stripeNetworkProfile: "bp_example_seller",
+  stripeNetworkProfile: "profile_example_seller",
   stripeAccount: "acct_example_seller",
+};
+
+/**
+ * Per-event Stripe identity. The manifest keeps the platform profile above.
+ * Direct charges grant the SPT to the organizer profile, not the platform profile.
+ */
+const EVENT_STRIPE: Record<string, { stripeNetworkProfile: string; stripeAccount: string }> = {
+  evt_harbor_lights: {
+    stripeNetworkProfile: "profile_example_harbor",
+    stripeAccount: "acct_example_harbor",
+  },
+  evt_mile_high_jazz: {
+    stripeNetworkProfile: "profile_example_jazz",
+    stripeAccount: "acct_example_jazz",
+  },
+};
+
+export type RecordedMutation = {
+  operation: "create" | "update" | "complete" | "cancel";
+  checkoutId?: string;
+  idempotencyKey?: string;
 };
 
 type CapturePayment = (input: {
@@ -43,6 +65,9 @@ type CapturePayment = (input: {
   currency: string;
   sharedPaymentToken: string;
   receiptEmail?: string;
+  idempotencyKey?: string;
+  stripeNetworkProfile?: string;
+  stripeAccount?: string;
 }) => Promise<{ id: string; status: string }>;
 
 type StoredTicketType = TicketTypeOffer & { stock: number };
@@ -127,17 +152,31 @@ export function createSampleSeller(options?: {
   openapiUrl?: string;
 }) {
   const sessions = new Map<string, CheckoutSession>();
+  const mutations: RecordedMutation[] = [];
   let seq = 0;
   const nextId = (prefix: string) => {
     seq += 1;
     return `${prefix}_${seq.toString(36)}`;
   };
 
-  const paymentHandler = stripeCardHandler({
-    merchantId: SELLER.stripeAccount,
-    networkProfile: SELLER.stripeNetworkProfile,
-  });
-  const capabilities = defaultCapabilities(paymentHandler);
+  function stripeFor(eventId: string) {
+    return (
+      EVENT_STRIPE[eventId] ?? {
+        stripeNetworkProfile: SELLER.stripeNetworkProfile,
+        stripeAccount: SELLER.stripeAccount,
+      }
+    );
+  }
+
+  function capabilitiesFor(eventId: string) {
+    const stripe = stripeFor(eventId);
+    return defaultCapabilities(
+      stripeCardHandler({
+        merchantId: stripe.stripeAccount,
+        networkProfile: stripe.stripeNetworkProfile,
+      })
+    );
+  }
 
   function heldQuantity(ticketTypeId: string, exceptSessionId?: string) {
     let held = 0;
@@ -215,6 +254,7 @@ export function createSampleSeller(options?: {
       inventoryOk: true,
       buyer: email ? { email } : undefined,
     });
+    const stripe = stripeFor(event.id);
     return {
       id,
       event_id: event.id,
@@ -227,7 +267,9 @@ export function createSampleSeller(options?: {
       totals,
       amount_total: amountTotalFromTotals(totals),
       expires_at: expiresAt ?? new Date(Date.now() + 30 * 60 * 1000).toISOString(),
-      capabilities,
+      capabilities: capabilitiesFor(event.id),
+      stripe_network_profile: stripe.stripeNetworkProfile,
+      stripe_account: stripe.stripeAccount,
       ...(status === "incomplete"
         ? { messages: [{ type: "info" as const, text: "Buyer email is required before payment." }] }
         : {}),
@@ -266,18 +308,19 @@ export function createSampleSeller(options?: {
       }
       return typesFor(eventId);
     },
-    async createCheckout(input: CreateCheckoutInput) {
+    async createCheckout(input: CreateCheckoutInput, context?: CheckoutRequestContext) {
       const event = EVENTS.find((candidate) => candidate.id === input.event_id);
       if (!event) throw new LogistixError("NOT_FOUND", "Event not found", 404);
       const session = sessionFrom(nextId("cs"), event, input.items, input.buyer);
       sessions.set(session.id, session);
+      mutations.push({ operation: "create", checkoutId: session.id, idempotencyKey: context?.idempotencyKey });
       return clone(session);
     },
     async getCheckout(checkoutId: string) {
       const session = sessions.get(checkoutId);
       return session ? clone(session) : null;
     },
-    async updateCheckout(checkoutId: string, input: UpdateCheckoutInput) {
+    async updateCheckout(checkoutId: string, input: UpdateCheckoutInput, context?: CheckoutRequestContext) {
       const current = sessions.get(checkoutId);
       if (!current) throw new LogistixError("NOT_FOUND", "Checkout session not found", 404);
       if (current.status === "completed") {
@@ -306,9 +349,18 @@ export function createSampleSeller(options?: {
       };
       const session = sessionFrom(current.id, event, items, buyer, current.id, current.expires_at);
       sessions.set(session.id, session);
+      mutations.push({
+        operation: "update",
+        checkoutId: session.id,
+        idempotencyKey: context?.idempotencyKey,
+      });
       return clone(session);
     },
-    async completeCheckout(checkoutId: string, input: CompleteCheckoutInput) {
+    async completeCheckout(
+      checkoutId: string,
+      input: CompleteCheckoutInput,
+      context?: CheckoutRequestContext
+    ) {
       const current = sessions.get(checkoutId);
       if (!current) throw new LogistixError("NOT_FOUND", "Checkout session not found", 404);
       if (current.status !== "ready_for_payment") {
@@ -318,12 +370,20 @@ export function createSampleSeller(options?: {
       if (!buyer?.email) {
         throw new LogistixError("CHECKOUT_NOT_READY", "Buyer email is required", 409);
       }
+      mutations.push({
+        operation: "complete",
+        checkoutId,
+        idempotencyKey: context?.idempotencyKey,
+      });
       if (options?.capturePayment) {
         const payment = await options.capturePayment({
           amountCents: current.amount_total,
           currency: current.currency,
           sharedPaymentToken: input.payment_data.token,
           receiptEmail: buyer.email,
+          idempotencyKey: context?.idempotencyKey,
+          stripeNetworkProfile: current.stripe_network_profile,
+          stripeAccount: current.stripe_account,
         });
         if (payment.status === "requires_action") {
           throw new LogistixError(
@@ -360,7 +420,7 @@ export function createSampleSeller(options?: {
       sessions.set(completed.id, completed);
       return clone(completed);
     },
-    async cancelCheckout(checkoutId: string) {
+    async cancelCheckout(checkoutId: string, context?: CheckoutRequestContext) {
       const current = sessions.get(checkoutId);
       if (!current) throw new LogistixError("NOT_FOUND", "Checkout session not found", 404);
       if (current.status === "completed") {
@@ -368,6 +428,7 @@ export function createSampleSeller(options?: {
       }
       const canceled: CheckoutSession = { ...current, status: "canceled" };
       sessions.set(canceled.id, canceled);
+      mutations.push({ operation: "cancel", checkoutId, idempotencyKey: context?.idempotencyKey });
       return clone(canceled);
     },
   };
@@ -388,6 +449,7 @@ export function createSampleSeller(options?: {
   return {
     adapter,
     discovery,
+    mutations,
     handler: createLogistixHandler({ adapter, apiKey }),
   };
 }
