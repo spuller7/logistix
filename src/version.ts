@@ -1,8 +1,12 @@
 /** Wire protocol version (YYYY-MM-DD). Sent as the `Logistix-Version` header. */
 export const LOGISTIX_VERSION = "2026-08-25";
 
-/** Stripe Agentic Commerce / Shared Payment Token preview API version. */
-export const STRIPE_AGENTIC_API_VERSION = "2026-04-22.preview";
+/**
+ * Stripe Agentic Commerce / Shared Payment Token preview API version.
+ * Stripe's current SPT docs (issued tokens, granted-token test helpers, and
+ * PaymentIntent confirm) send `Stripe-Version: 2026-09-30.preview`.
+ */
+export const STRIPE_AGENTIC_API_VERSION = "2026-09-30.preview";
 
 /** ACP checkout API version Linguistix checkout sessions align with. */
 export const ACP_API_VERSION = "2026-01-30";

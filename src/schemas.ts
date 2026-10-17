@@ -86,3 +86,9 @@ export const completeCheckoutInputSchema = z.object({
   payment_data: paymentDataSchema,
   buyer: partialBuyerSchema.optional(),
 });
+
+/**
+ * `Idempotency-Key` header for mutating checkout calls (create, update, complete, cancel).
+ * The header is not part of the JSON body. Stripe accepts at most 255 characters.
+ */
+export const idempotencyKeySchema = z.string().trim().min(1).max(255);

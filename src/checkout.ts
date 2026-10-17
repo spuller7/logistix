@@ -136,7 +136,7 @@ export const TICKET_PURCHASE_FLOW = [
     step: 6,
     name: "issue_shared_payment_token",
     description:
-      "Collect the payment method in a third-party widget embedded in the chat (Stripe Payment Element, Elements, or a wallet). Never take a card number, PAN, or CVC as chat text. Issue a Stripe Shared Payment Token scoped to payment.stripe_network_profile. Keep 3DS inside that widget when possible. A hosted payment URL is a last resort only.",
+      "Collect the payment method in a third-party widget embedded in the chat (Stripe Payment Element, Elements, or a wallet). Never take a card number, PAN, or CVC as chat text. Issue a Stripe Shared Payment Token to the checkout session stripe_network_profile when set, otherwise to payment.stripe_network_profile. Keep 3DS inside that widget when possible. A hosted payment URL is a last resort only.",
     http: "Stripe POST /v1/shared_payment/issued_tokens",
   },
   {

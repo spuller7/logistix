@@ -15,8 +15,29 @@ export type StripeRaw = {
     method: string,
     path: string,
     params?: { [key: string]: unknown },
-    options?: { apiVersion?: string; headers?: Record<string, string> }
+    options?: {
+      apiVersion?: string;
+      headers?: Record<string, string>;
+      /** Sent as the Stripe `Idempotency-Key` header by stripe-node's rawRequest. */
+      idempotencyKey?: string;
+    }
   ) => Promise<unknown>;
+};
+
+/**
+ * Stripe PaymentIntent `hooks` object, flattened into bracket parameters.
+ * Open Gate sets `inputs.tax.calculation` to a Stripe Tax Calculation id
+ * (`taxcalc_…`) so a direct charge records tax.
+ */
+export type PaymentIntentHooks = {
+  inputs?: {
+    tax?: {
+      calculation?: string;
+      [key: string]: unknown;
+    };
+    [key: string]: unknown;
+  };
+  [key: string]: unknown;
 };
 
 export type ConfirmWithSptInput = {
@@ -29,7 +50,26 @@ export type ConfirmWithSptInput = {
   connectAccountId?: string | null;
   confirm?: boolean;
   applicationFeeAmount?: number;
+  /** Stripe Idempotency-Key for this PaymentIntent create. Forward the checkout key. */
+  idempotencyKey?: string;
+  /** Passed through as `hooks[...]` parameters. Not interpreted beyond flattening. */
+  hooks?: PaymentIntentHooks;
 };
+
+function assignStripeParams(target: Record<string, unknown>, prefix: string, value: unknown): void {
+  if (value == null) return;
+  if (Array.isArray(value)) {
+    value.forEach((item, index) => assignStripeParams(target, `${prefix}[${index}]`, item));
+    return;
+  }
+  if (typeof value === "object") {
+    for (const [key, child] of Object.entries(value as Record<string, unknown>)) {
+      assignStripeParams(target, `${prefix}[${key}]`, child);
+    }
+    return;
+  }
+  target[prefix] = value;
+}
 
 function defaultExpiryUnix() {
   return Math.floor(Date.now() / 1000) + 60 * 30;
@@ -83,10 +123,16 @@ export async function confirmPaymentIntentWithSharedToken(
       params[`metadata[${k}]`] = v;
     }
   }
+  if (input.hooks) assignStripeParams(params, "hooks", input.hooks);
 
-  const options: { apiVersion: string; headers?: Record<string, string> } = {
+  const options: {
+    apiVersion: string;
+    headers?: Record<string, string>;
+    idempotencyKey?: string;
+  } = {
     apiVersion: STRIPE_AGENTIC_API_VERSION,
   };
+  if (input.idempotencyKey) options.idempotencyKey = input.idempotencyKey;
   if (input.connectAccountId) {
     options.headers = { "Stripe-Account": input.connectAccountId };
   }

@@ -36,7 +36,7 @@ export const LINGUISTIX_PAYMENT_COLLECTION = {
   hosted_payment_url: "last_resort",
   seller_receives: "shared_payment_token",
   instructions:
-    "Collect the payment method in a third-party widget embedded in the chat (Stripe Payment Element, Elements, or a wallet). The buyer must never type a card number, PAN, or CVC into the chat or the model. Issue a Stripe Shared Payment Token to payment.stripe_network_profile and send only that spt_ token as payment_data.token on checkout complete. Keep 3DS and requires_action inside that same embedded widget when possible. Open a hosted payment URL only as a last resort when the chat cannot embed a widget, then still complete with an spt_ token.",
+    "Collect the payment method in a third-party widget embedded in the chat (Stripe Payment Element, Elements, or a wallet). The buyer must never type a card number, PAN, or CVC into the chat or the model. Issue a Stripe Shared Payment Token to the checkout session stripe_network_profile when the session sets one (the organizer's connected-account profile on a direct charge), otherwise to payment.stripe_network_profile. Send only that spt_ token as payment_data.token on checkout complete. Keep 3DS and requires_action inside that same embedded widget when possible. Open a hosted payment URL only as a last resort when the chat cannot embed a widget, then still complete with an spt_ token.",
 } as const;
 
 const absoluteHttpUrl = z.string().refine((value) => {
@@ -57,7 +57,13 @@ export const linguistixDiscoveryDocumentSchema = z
     seller: z.object({
       id: z.string().min(1),
       name: z.string().min(1),
-      stripe_network_profile: z.string().min(1).optional(),
+      stripe_network_profile: z
+        .string()
+        .min(1)
+        .optional()
+        .describe(
+          "Default Stripe profile id (profile_…). A checkout session may set a different stripe_network_profile for a connected-account organizer. Must match payment.stripe_network_profile."
+        ),
       stripe_account: z.string().min(1).optional(),
     }),
     api: z.object({
@@ -80,7 +86,13 @@ export const linguistixDiscoveryDocumentSchema = z
       handler_name: z.literal("dev.acp.tokenized.card"),
       requires_delegate_payment: z.literal(true),
       accepted_brands: z.array(z.string().min(1)).min(1),
-      stripe_network_profile: z.string().min(1).optional(),
+      stripe_network_profile: z
+        .string()
+        .min(1)
+        .optional()
+        .describe(
+          "Default Stripe profile (profile_…) for seller_details[network_business_profile]. Checkout sessions can override this per organizer. Required when agentic_payment is true."
+        ),
       stripe_account: z.string().min(1).optional(),
       collection: z.object({
         cardholder_data_in_chat: z.literal("forbidden"),

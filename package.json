@@ -3,12 +3,17 @@
   "version": "0.1.0",
   "description": "Linguistix seller protocol: discovery document, HTTP checkout, and Stripe Shared Payment Token confirm helpers for ticketing platforms. Agents call the HTTP API; they do not import this package.",
   "type": "module",
-  "main": "./src/index.ts",
-  "types": "./src/index.ts",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
   "exports": {
-    ".": "./src/index.ts"
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js",
+      "default": "./dist/index.js"
+    }
   },
   "files": [
+    "dist",
     "src",
     "openapi",
     "discovery",
@@ -17,8 +22,10 @@
     "README.md"
   ],
   "scripts": {
+    "build": "tsc -p tsconfig.build.json",
+    "prepare": "npm run build",
     "typecheck": "tsc --noEmit",
-    "smoke": "tsc -p tsconfig.smoke.json --pretty false && node dist/scripts/smoke.js"
+    "smoke": "npm run build && tsc -p tsconfig.smoke.json --pretty false && node dist-smoke/scripts/smoke.js"
   },
   "license": "UNLICENSED",
   "peerDependencies": {
