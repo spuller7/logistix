@@ -1,5 +1,13 @@
 import { LOGISTIX_VERSION, STRIPE_AGENTIC_API_VERSION } from "./version.js";
 
+/**
+ * Seller-side Stripe helpers for Shared Payment Tokens.
+ *
+ * The paying agent issues the token with Stripe (`POST /v1/shared_payment/issued_tokens`),
+ * using the seller profile published in `/.well-known/linguistix.json`. That call is
+ * specified in PROTOCOL.md. This module confirms a PaymentIntent with the granted token.
+ */
+
 /** Minimal Stripe surface used for Shared Payment Tokens (preview APIs). */
 export type StripeRaw = {
   // Stripe SDK overloads rawRequest; keep this structural so both v20 and v22 assign.
@@ -9,25 +17,6 @@ export type StripeRaw = {
     params?: { [key: string]: unknown },
     options?: { apiVersion?: string; headers?: Record<string, string> }
   ) => Promise<unknown>;
-};
-
-export type IssueSptInput = {
-  paymentMethodId: string;
-  sellerNetworkProfile: string;
-  amountCents: number;
-  currency: string;
-  expiresAtUnix?: number;
-  returnUrl?: string;
-};
-
-export type IssuedToken = {
-  id: string;
-  object?: string;
-  status?: string;
-  next_action?: {
-    type?: string;
-    use_stripe_sdk?: { value?: string };
-  };
 };
 
 export type ConfirmWithSptInput = {
@@ -44,25 +33,6 @@ export type ConfirmWithSptInput = {
 
 function defaultExpiryUnix() {
   return Math.floor(Date.now() / 1000) + 60 * 30;
-}
-
-export async function issueSharedPaymentToken(
-  stripe: StripeRaw,
-  input: IssueSptInput
-): Promise<IssuedToken> {
-  const params: Record<string, unknown> = {
-    payment_method: input.paymentMethodId,
-    "seller_details[network_business_profile]": input.sellerNetworkProfile,
-    "usage_limits[currency]": input.currency.toLowerCase(),
-    "usage_limits[max_amount]": input.amountCents,
-    "usage_limits[expires_at]": input.expiresAtUnix ?? defaultExpiryUnix(),
-  };
-  if (input.returnUrl) {
-    params.return_url = input.returnUrl;
-  }
-  return (await stripe.rawRequest("POST", "/v1/shared_payment/issued_tokens", params, {
-    apiVersion: STRIPE_AGENTIC_API_VERSION,
-  })) as IssuedToken;
 }
 
 /**

@@ -1,7 +1,7 @@
 {
   "name": "logistix",
   "version": "0.1.0",
-  "description": "Standard protocol for AI agents to find, select, and buy event tickets through ticketing platforms, using Stripe Agentic Commerce for payment.",
+  "description": "Linguistix seller protocol: discovery document, HTTP checkout, and Stripe Shared Payment Token confirm helpers for ticketing platforms. Agents call the HTTP API; they do not import this package.",
   "type": "module",
   "main": "./src/index.ts",
   "types": "./src/index.ts",
@@ -10,9 +10,16 @@
   },
   "files": [
     "src",
+    "openapi",
+    "discovery",
+    "examples",
     "PROTOCOL.md",
     "README.md"
   ],
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "smoke": "tsc -p tsconfig.smoke.json --pretty false && node dist/scripts/smoke.js"
+  },
   "license": "UNLICENSED",
   "peerDependencies": {
     "zod": "^4.0.0"
@@ -20,11 +27,21 @@
   "dependencies": {
     "zod": "^4.3.6"
   },
+  "devDependencies": {
+    "@types/node": "^22.20.5",
+    "typescript": "^5.9.3"
+  },
   "keywords": [
+    "linguistix",
+    "logistix",
     "tickets",
+    "seller-protocol",
+    "discovery",
+    "well-known",
+    "openapi",
     "agentic-commerce",
     "stripe",
-    "acp",
-    "chat-agents"
+    "shared-payment-token",
+    "acp"
   ]
 }

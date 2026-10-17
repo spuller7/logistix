@@ -1,0 +1,52 @@
+{
+  "product": "Linguistix",
+  "protocol": "logistix",
+  "protocol_version": "2026-08-25",
+  "acp_version": "2026-01-30",
+  "seller": {
+    "id": "open-gate",
+    "name": "Open Gate",
+    "stripe_network_profile": "bp_example_open_gate",
+    "stripe_account": "acct_example_open_gate"
+  },
+  "api": {
+    "mount": "https://tickets.example.com/api/logistix",
+    "openapi": "https://tickets.example.com/.well-known/linguistix-openapi.yaml"
+  },
+  "auth": {
+    "type": "bearer",
+    "header": "Authorization",
+    "scheme": "Bearer",
+    "version_header": "Logistix-Version",
+    "mode": "published",
+    "token": "example-agent-token",
+    "instructions": "Send this bearer token on every request to api.mount. Replace example-agent-token with the seller's published agent credential. It is a public checkout credential, not an admin secret."
+  },
+  "payment": {
+    "provider": "stripe",
+    "method": "shared_payment_token",
+    "handler_id": "card_tokenized",
+    "handler_name": "dev.acp.tokenized.card",
+    "requires_delegate_payment": true,
+    "accepted_brands": ["visa", "mastercard", "amex", "discover"],
+    "stripe_network_profile": "bp_example_open_gate",
+    "stripe_account": "acct_example_open_gate",
+    "collection": {
+      "cardholder_data_in_chat": "forbidden",
+      "primary_ui": "embedded_third_party",
+      "widgets": ["stripe_payment_element", "stripe_elements", "wallet"],
+      "redirect_to_checkout_page": "not_primary",
+      "requires_action": "same_embedded_widget",
+      "hosted_payment_url": "last_resort",
+      "seller_receives": "shared_payment_token",
+      "instructions": "Collect the payment method in a third-party widget embedded in the chat (Stripe Payment Element, Elements, or a wallet). The buyer must never type a card number, PAN, or CVC into the chat or the model. Issue a Stripe Shared Payment Token to payment.stripe_network_profile and send only that spt_ token as payment_data.token on checkout complete. Keep 3DS and requires_action inside that same embedded widget when possible. Open a hosted payment URL only as a last resort when the chat cannot embed a widget, then still complete with an spt_ token."
+    }
+  },
+  "capabilities": {
+    "search": true,
+    "ticket_types": true,
+    "checkout": true,
+    "agentic_payment": true,
+    "fulfillment": ["digital"]
+  }
+}

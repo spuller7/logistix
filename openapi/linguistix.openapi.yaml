@@ -1,0 +1,1008 @@
+openapi: 3.1.0
+info:
+  title: Linguistix seller API
+  version: "2026-08-25"
+  summary: HTTP checkout a ticketing seller mounts so any agent can buy tickets.
+  description: |
+    Product name: **Linguistix**. Wire protocol id: `logistix`. Package name: `logistix`.
+
+    Agents do not import the package. They read `/.well-known/linguistix.json` (see
+    `discovery/linguistix.discovery.schema.json`), then call this API at `api.mount`.
+
+    Paths below are relative to that mount. A seller hosts a copy of this document at
+    `api.openapi` (recommended path `/.well-known/linguistix-openapi.yaml`) and sets
+    `servers[0].url` to the same mount.
+
+    Checkout follows the Agentic Commerce Protocol lifecycle (create, update, complete).
+
+    Payment collection, also published as `payment.collection` on `/.well-known/linguistix.json`:
+
+    - The buyer must never type a card number, PAN, or CVC into the model or as free text in chat.
+    - The chat host collects the payment method in a third-party widget embedded in the chat
+      (Stripe Payment Element, Elements, or a wallet). A redirect to a new checkout page is not the primary path.
+    - The host issues a Stripe Shared Payment Token scoped to `payment.stripe_network_profile`.
+    - `POST /checkout_sessions/{id}/complete` receives `payment_data.token` (`spt_…`) only.
+      Raw card data is rejected.
+    - 3DS and other `requires_action` steps stay inside that same embedded widget when possible.
+    - A hosted `payment_url` is a last resort when the chat cannot embed a widget. The host
+      still completes this API with an `spt_…` token.
+
+    The seller confirms a PaymentIntent on complete. Fulfillment is digital (email and wallet).
+    There is no shipping address.
+  license:
+    name: UNLICENSED
+  x-linguistix-product: Linguistix
+  x-linguistix-protocol: logistix
+  x-linguistix-protocol-version: "2026-08-25"
+  x-acp-version: "2026-01-30"
+  x-linguistix-payment-collection:
+    cardholder_data_in_chat: forbidden
+    primary_ui: embedded_third_party
+    widgets: [stripe_payment_element, stripe_elements, wallet]
+    redirect_to_checkout_page: not_primary
+    requires_action: same_embedded_widget
+    hosted_payment_url: last_resort
+    seller_receives: shared_payment_token
+
+servers:
+  - url: https://tickets.example.com/api/logistix
+    description: Replace with the seller mount from `/.well-known/linguistix.json` (`api.mount`).
+
+tags:
+  - name: Manifest
+    description: Seller identity returned once the mount URL is already known.
+  - name: Events
+    description: Published events and ticket types.
+  - name: Checkout
+    description: Stateful checkout sessions.
+
+security:
+  - bearerAuth: []
+  - {}
+
+paths:
+  /:
+    get:
+      tags: [Manifest]
+      operationId: getManifest
+      summary: Seller manifest
+      description: |
+        Identity, capabilities, and Stripe payment handler for this mount.
+        The well-known discovery document is the entry point that advertises this URL.
+        `endpoints` are paths relative to the mount.
+      responses:
+        "200":
+          description: Seller manifest.
+          headers:
+            Logistix-Version:
+              $ref: "#/components/headers/LogistixVersion"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SellerManifest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "500":
+          $ref: "#/components/responses/SellerError"
+
+  /events:
+    get:
+      tags: [Events]
+      operationId: searchEvents
+      summary: Search events
+      parameters:
+        - $ref: "#/components/parameters/LogistixVersion"
+        - name: q
+          in: query
+          description: Artist, team, event name, or venue.
+          schema:
+            type: string
+        - name: city
+          in: query
+          description: City or region filter.
+          schema:
+            type: string
+        - name: starts_after
+          in: query
+          description: Inclusive ISO 8601 lower bound on `starts_at`.
+          schema:
+            type: string
+            format: date-time
+        - name: starts_before
+          in: query
+          description: Inclusive ISO 8601 upper bound on `starts_at`.
+          schema:
+            type: string
+            format: date-time
+        - name: limit
+          in: query
+          description: Maximum events to return (1–50).
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 50
+      responses:
+        "200":
+          description: Matching events. `ticket_types` may be omitted; use the ticket-types route for inventory.
+          headers:
+            Logistix-Version:
+              $ref: "#/components/headers/LogistixVersion"
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [events]
+                properties:
+                  events:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/EventOffer"
+        "400":
+          $ref: "#/components/responses/ValidationError"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "500":
+          $ref: "#/components/responses/SellerError"
+
+  /events/{event_id}:
+    get:
+      tags: [Events]
+      operationId: getEvent
+      summary: Get one event
+      parameters:
+        - $ref: "#/components/parameters/LogistixVersion"
+        - $ref: "#/components/parameters/EventId"
+      responses:
+        "200":
+          description: Event. May embed `ticket_types`.
+          headers:
+            Logistix-Version:
+              $ref: "#/components/headers/LogistixVersion"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/EventOffer"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "500":
+          $ref: "#/components/responses/SellerError"
+
+  /events/{event_id}/ticket-types:
+    get:
+      tags: [Events]
+      operationId: listTicketTypes
+      summary: List ticket types and remaining inventory
+      parameters:
+        - $ref: "#/components/parameters/LogistixVersion"
+        - $ref: "#/components/parameters/EventId"
+      responses:
+        "200":
+          description: Ticket types for the event. Prices are integer cents.
+          headers:
+            Logistix-Version:
+              $ref: "#/components/headers/LogistixVersion"
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [ticket_types]
+                properties:
+                  ticket_types:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/TicketTypeOffer"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "500":
+          $ref: "#/components/responses/SellerError"
+
+  /checkout_sessions:
+    post:
+      tags: [Checkout]
+      operationId: createCheckout
+      summary: Create a checkout session
+      description: |
+        Opens a stateful checkout (ACP create). The seller holds inventory and returns totals.
+        Status stays `incomplete` until a buyer email is present and inventory is valid.
+      parameters:
+        - $ref: "#/components/parameters/LogistixVersion"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateCheckoutInput"
+            example:
+              event_id: evt_harbor_lights
+              items:
+                - ticket_type_id: tt_ga
+                  quantity: 2
+              buyer:
+                email: buyer@example.com
+                first_name: Ada
+      responses:
+        "201":
+          description: Checkout created.
+          headers:
+            Logistix-Version:
+              $ref: "#/components/headers/LogistixVersion"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CheckoutSession"
+        "400":
+          $ref: "#/components/responses/ValidationError"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "500":
+          $ref: "#/components/responses/SellerError"
+
+  /checkout_sessions/{checkout_id}:
+    get:
+      tags: [Checkout]
+      operationId: getCheckout
+      summary: Get a checkout session
+      description: Authoritative totals, status, and `order` after completion.
+      parameters:
+        - $ref: "#/components/parameters/LogistixVersion"
+        - $ref: "#/components/parameters/CheckoutId"
+      responses:
+        "200":
+          description: Checkout session. `order` is present when `status` is `completed`.
+          headers:
+            Logistix-Version:
+              $ref: "#/components/headers/LogistixVersion"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CheckoutSession"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "500":
+          $ref: "#/components/responses/SellerError"
+    post:
+      tags: [Checkout]
+      operationId: updateCheckout
+      summary: Update a checkout session
+      description: |
+        Adjust quantities or attach the buyer (ACP update). A session with a buyer email
+        and valid inventory becomes `ready_for_payment`.
+      parameters:
+        - $ref: "#/components/parameters/LogistixVersion"
+        - $ref: "#/components/parameters/CheckoutId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UpdateCheckoutInput"
+            example:
+              buyer:
+                email: buyer@example.com
+                first_name: Ada
+      responses:
+        "200":
+          description: Updated checkout session.
+          headers:
+            Logistix-Version:
+              $ref: "#/components/headers/LogistixVersion"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CheckoutSession"
+        "400":
+          $ref: "#/components/responses/ValidationError"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "500":
+          $ref: "#/components/responses/SellerError"
+
+  /checkout_sessions/{checkout_id}/complete:
+    post:
+      tags: [Checkout]
+      operationId: completeCheckout
+      summary: Pay and issue tickets
+      description: |
+        Completes checkout (ACP complete). Call this only when `status` is `ready_for_payment`.
+
+        `payment_data.token` is a Stripe Shared Payment Token (`spt_…`) the chat host already
+        issued to this seller's Stripe profile. The host collected the payment method in an
+        embedded third-party widget (Stripe Payment Element, Elements, or a wallet), not by
+        asking the buyer to type a card number into chat, and not by redirecting to a new
+        checkout page. 3DS stays inside that widget when possible. A hosted payment URL is
+        a last resort and still ends in this call with an `spt_…` token.
+
+        This body never contains a PAN or CVC. Digit-only card numbers and CVCs are
+        `VALIDATION_ERROR`. The seller confirms a PaymentIntent with
+        `payment_method_data[shared_payment_granted_token]` and then issues digital tickets.
+      parameters:
+        - $ref: "#/components/parameters/LogistixVersion"
+        - $ref: "#/components/parameters/CheckoutId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CompleteCheckoutInput"
+            example:
+              payment_data:
+                token: spt_example
+                provider: stripe
+                handler_id: card_tokenized
+              buyer:
+                email: buyer@example.com
+                first_name: Ada
+      responses:
+        "200":
+          description: Completed checkout, including the order permalink and issued tickets.
+          headers:
+            Logistix-Version:
+              $ref: "#/components/headers/LogistixVersion"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CheckoutSession"
+        "400":
+          $ref: "#/components/responses/ValidationError"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "402":
+          description: Payment was declined or still needs buyer authentication.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorBody"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "500":
+          $ref: "#/components/responses/SellerError"
+
+  /checkout_sessions/{checkout_id}/cancel:
+    post:
+      tags: [Checkout]
+      operationId: cancelCheckout
+      summary: Cancel a checkout and release held inventory
+      parameters:
+        - $ref: "#/components/parameters/LogistixVersion"
+        - $ref: "#/components/parameters/CheckoutId"
+      responses:
+        "200":
+          description: Canceled checkout session.
+          headers:
+            Logistix-Version:
+              $ref: "#/components/headers/LogistixVersion"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CheckoutSession"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "500":
+          $ref: "#/components/responses/SellerError"
+
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      description: |
+        Required when the discovery document sets `auth.mode` to `published` or `out_of_band`.
+        The credential is `auth.token` when published, or a token obtained via `auth.instructions`.
+        Omit the header when `auth.mode` is `none`.
+
+  parameters:
+    LogistixVersion:
+      name: Logistix-Version
+      in: header
+      required: false
+      description: Protocol version the caller is speaking. Servers echo their version on responses.
+      schema:
+        type: string
+        example: "2026-08-25"
+    EventId:
+      name: event_id
+      in: path
+      required: true
+      schema:
+        type: string
+    CheckoutId:
+      name: checkout_id
+      in: path
+      required: true
+      schema:
+        type: string
+
+  headers:
+    LogistixVersion:
+      description: Protocol version of this seller.
+      schema:
+        type: string
+        example: "2026-08-25"
+
+  responses:
+    Unauthorized:
+      description: Missing or invalid bearer token.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorBody"
+    ValidationError:
+      description: Request body or query failed validation, or a seller rule such as promo or sold out rejected it.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorBody"
+    NotFound:
+      description: Event or checkout session does not exist.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorBody"
+    Conflict:
+      description: Inventory, promo, or checkout state rejected the request (for example sold out, or the session is already completed).
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorBody"
+    SellerError:
+      description: Unexpected seller failure.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorBody"
+
+  schemas:
+    ErrorBody:
+      type: object
+      required: [error]
+      properties:
+        error:
+          type: object
+          required: [code, message]
+          properties:
+            code:
+              type: string
+              enum:
+                - UNAUTHORIZED
+                - NOT_FOUND
+                - VALIDATION_ERROR
+                - SOLD_OUT
+                - PROMO_REQUIRED
+                - INVALID_PROMO
+                - CHECKOUT_NOT_READY
+                - CHECKOUT_EXPIRED
+                - CHECKOUT_COMPLETED
+                - CHECKOUT_CANCELED
+                - PAYMENT_REQUIRED
+                - PAYMENT_DECLINED
+                - PAYMENT_ACTION_REQUIRED
+                - SELLER_ERROR
+                - CONFLICT
+            message:
+              type: string
+            details:
+              type: object
+              additionalProperties: true
+
+    MoneyCents:
+      type: integer
+      description: Amount in the smallest currency unit (cents for USD).
+
+    Buyer:
+      type: object
+      required: [email]
+      properties:
+        first_name:
+          type: string
+        last_name:
+          type: string
+        email:
+          type: string
+          format: email
+        phone:
+          type: string
+
+    PartialBuyer:
+      type: object
+      properties:
+        first_name:
+          type: string
+        last_name:
+          type: string
+        email:
+          type: string
+          format: email
+        phone:
+          type: string
+
+    TicketLineItem:
+      type: object
+      required: [ticket_type_id, quantity]
+      properties:
+        ticket_type_id:
+          type: string
+        quantity:
+          type: integer
+          minimum: 1
+        promo_code:
+          type: string
+          description: Required by the seller when the ticket type sets `requires_promo`.
+
+    TicketTypeOffer:
+      type: object
+      required:
+        - id
+        - event_id
+        - sku
+        - name
+        - price_cents
+        - currency
+        - quantity_available
+        - requires_promo
+      properties:
+        id:
+          type: string
+        event_id:
+          type: string
+        sku:
+          type: string
+        name:
+          type: string
+        description:
+          type: ["string", "null"]
+        price_cents:
+          $ref: "#/components/schemas/MoneyCents"
+        currency:
+          type: string
+          description: ISO 4217 lowercase currency code.
+          examples: [usd]
+        quantity_available:
+          type: integer
+          minimum: 0
+        requires_promo:
+          type: boolean
+
+    EventOffer:
+      type: object
+      required:
+        - id
+        - seller_id
+        - seller_name
+        - title
+        - country
+        - starts_at
+        - ends_at
+        - timezone
+        - currency
+      properties:
+        id:
+          type: string
+        seller_id:
+          type: string
+        seller_name:
+          type: string
+        title:
+          type: string
+        description:
+          type: ["string", "null"]
+        venue:
+          type: ["string", "null"]
+        city:
+          type: ["string", "null"]
+        address:
+          type: ["string", "null"]
+        country:
+          type: string
+        state:
+          type: ["string", "null"]
+        postal_code:
+          type: ["string", "null"]
+        starts_at:
+          type: string
+          format: date-time
+        ends_at:
+          type: string
+          format: date-time
+        timezone:
+          type: string
+        currency:
+          type: string
+        image_url:
+          type: ["string", "null"]
+        url:
+          type: ["string", "null"]
+        ticket_types:
+          type: array
+          items:
+            $ref: "#/components/schemas/TicketTypeOffer"
+
+    CheckoutLineItem:
+      type: object
+      required:
+        - id
+        - ticket_type_id
+        - sku
+        - name
+        - quantity
+        - unit_amount
+        - base_amount
+        - discount
+        - subtotal
+        - tax
+        - total
+      properties:
+        id:
+          type: string
+        ticket_type_id:
+          type: string
+        sku:
+          type: string
+        name:
+          type: string
+        quantity:
+          type: integer
+          minimum: 1
+        unit_amount:
+          $ref: "#/components/schemas/MoneyCents"
+        base_amount:
+          $ref: "#/components/schemas/MoneyCents"
+        discount:
+          $ref: "#/components/schemas/MoneyCents"
+        subtotal:
+          $ref: "#/components/schemas/MoneyCents"
+        tax:
+          $ref: "#/components/schemas/MoneyCents"
+        total:
+          $ref: "#/components/schemas/MoneyCents"
+
+    TotalLine:
+      type: object
+      required: [type, display_text, amount]
+      properties:
+        type:
+          type: string
+          enum:
+            - items_base_amount
+            - discount
+            - subtotal
+            - service_fee
+            - fulfillment
+            - tax
+            - total
+        display_text:
+          type: string
+        amount:
+          $ref: "#/components/schemas/MoneyCents"
+
+    DigitalFulfillmentOption:
+      type: object
+      required: [type, id, title, subtitle, subtotal, tax, total]
+      properties:
+        type:
+          const: digital
+        id:
+          type: string
+          examples: [fulfill_digital_tickets]
+        title:
+          type: string
+        subtitle:
+          type: string
+        subtotal:
+          $ref: "#/components/schemas/MoneyCents"
+        tax:
+          $ref: "#/components/schemas/MoneyCents"
+        total:
+          $ref: "#/components/schemas/MoneyCents"
+
+    PaymentHandler:
+      type: object
+      required: [id, name, version, requires_delegate_payment, psp, config]
+      properties:
+        id:
+          const: card_tokenized
+        name:
+          const: dev.acp.tokenized.card
+        version:
+          type: string
+          examples: ["2026-01-22"]
+        requires_delegate_payment:
+          const: true
+        psp:
+          const: stripe
+        config:
+          type: object
+          required: [accepted_brands]
+          properties:
+            merchant_id:
+              type: string
+              description: Stripe account id when the seller publishes one.
+            network_profile:
+              type: string
+              description: Stripe network business profile the Shared Payment Token is scoped to.
+            accepted_brands:
+              type: array
+              items:
+                type: string
+
+    CheckoutCapabilities:
+      type: object
+      required: [payment]
+      properties:
+        payment:
+          type: object
+          required: [handlers]
+          properties:
+            handlers:
+              type: array
+              items:
+                $ref: "#/components/schemas/PaymentHandler"
+
+    CheckoutMessage:
+      type: object
+      required: [type, text]
+      properties:
+        type:
+          type: string
+          enum: [info, error, warning]
+        text:
+          type: string
+
+    IssuedTicket:
+      type: object
+      required: [id, ticket_type_id, ticket_type_name]
+      properties:
+        id:
+          type: string
+        ticket_type_id:
+          type: string
+        ticket_type_name:
+          type: string
+        unique_code:
+          type: string
+
+    Order:
+      type: object
+      required: [id, checkout_session_id, order_number, permalink_url]
+      properties:
+        id:
+          type: string
+        checkout_session_id:
+          type: string
+        order_number:
+          type: string
+        permalink_url:
+          type: string
+          format: uri
+        tickets:
+          type: array
+          items:
+            $ref: "#/components/schemas/IssuedTicket"
+
+    CheckoutSession:
+      type: object
+      required:
+        - id
+        - event_id
+        - currency
+        - status
+        - line_items
+        - fulfillment_options
+        - fulfillment_option_id
+        - totals
+        - amount_total
+        - expires_at
+        - capabilities
+      properties:
+        id:
+          type: string
+        event_id:
+          type: string
+        currency:
+          type: string
+        status:
+          type: string
+          enum:
+            - incomplete
+            - ready_for_payment
+            - processing
+            - completed
+            - canceled
+            - requires_escalation
+        buyer:
+          oneOf:
+            - $ref: "#/components/schemas/Buyer"
+            - type: "null"
+        line_items:
+          type: array
+          items:
+            $ref: "#/components/schemas/CheckoutLineItem"
+        fulfillment_options:
+          type: array
+          items:
+            $ref: "#/components/schemas/DigitalFulfillmentOption"
+        fulfillment_option_id:
+          type: string
+        totals:
+          type: array
+          items:
+            $ref: "#/components/schemas/TotalLine"
+        amount_total:
+          $ref: "#/components/schemas/MoneyCents"
+        expires_at:
+          type: string
+          format: date-time
+        capabilities:
+          $ref: "#/components/schemas/CheckoutCapabilities"
+        messages:
+          type: array
+          items:
+            $ref: "#/components/schemas/CheckoutMessage"
+        order:
+          description: Present when status is completed.
+          $ref: "#/components/schemas/Order"
+
+    CreateCheckoutInput:
+      type: object
+      required: [event_id, items]
+      properties:
+        event_id:
+          type: string
+        items:
+          type: array
+          minItems: 1
+          items:
+            $ref: "#/components/schemas/TicketLineItem"
+        buyer:
+          $ref: "#/components/schemas/PartialBuyer"
+        agent_details:
+          type: object
+          description: Optional identity of the paying agent, for the seller's records.
+          properties:
+            network_profile:
+              type: string
+            display_name:
+              type: string
+
+    UpdateCheckoutInput:
+      type: object
+      properties:
+        items:
+          type: array
+          minItems: 1
+          items:
+            $ref: "#/components/schemas/TicketLineItem"
+        buyer:
+          $ref: "#/components/schemas/PartialBuyer"
+        fulfillment_option_id:
+          type: string
+
+    PaymentData:
+      type: object
+      required: [token, provider, handler_id]
+      properties:
+        token:
+          type: string
+          description: |
+            Shared Payment Token id (`spt_…`) issued to the seller's Stripe profile after the
+            buyer used an embedded payment widget. Never a card number, PAN, or CVC.
+          examples: [spt_example]
+        provider:
+          const: stripe
+        handler_id:
+          const: card_tokenized
+        billing_address:
+          type: object
+          properties:
+            line1:
+              type: string
+            city:
+              type: string
+            state:
+              type: string
+            postal_code:
+              type: string
+            country:
+              type: string
+        payment_method:
+          type: string
+          description: |
+            Dev/test fallback Stripe PaymentMethod id (`pm_…`) when SPT APIs are unavailable.
+            Live checkout sends an SPT in `token`. Never a card number, PAN, or CVC.
+
+    CompleteCheckoutInput:
+      type: object
+      required: [payment_data]
+      properties:
+        payment_data:
+          $ref: "#/components/schemas/PaymentData"
+        buyer:
+          $ref: "#/components/schemas/PartialBuyer"
+
+    SellerManifest:
+      type: object
+      required:
+        - protocol
+        - version
+        - acp_version
+        - seller
+        - capabilities
+        - endpoints
+        - payment
+      properties:
+        protocol:
+          const: logistix
+        product:
+          const: Linguistix
+        version:
+          type: string
+          examples: ["2026-08-25"]
+        acp_version:
+          type: string
+          examples: ["2026-01-30"]
+        seller:
+          type: object
+          required: [id, name]
+          properties:
+            id:
+              type: string
+            name:
+              type: string
+            stripe_network_profile:
+              type: string
+            stripe_account:
+              type: string
+        capabilities:
+          type: object
+          required: [search, ticket_types, checkout, agentic_payment, fulfillment]
+          properties:
+            search:
+              type: boolean
+            ticket_types:
+              type: boolean
+            checkout:
+              type: boolean
+            agentic_payment:
+              type: boolean
+            fulfillment:
+              type: array
+              items:
+                const: digital
+        endpoints:
+          type: object
+          required: [events, checkout_sessions]
+          description: Paths relative to the API mount.
+          properties:
+            events:
+              type: string
+              examples: [events]
+            checkout_sessions:
+              type: string
+              examples: [checkout_sessions]
+        payment:
+          type: object
+          required: [handlers]
+          properties:
+            handlers:
+              type: array
+              items:
+                $ref: "#/components/schemas/PaymentHandler"
